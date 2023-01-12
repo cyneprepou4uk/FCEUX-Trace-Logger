@@ -369,13 +369,13 @@ void GuiConfDialog_t::openQss(void)
 	int ret, useNativeFileDialogVal; //, useCustom;
 	QString filename;
 	std::string last, iniPath;
-	char dir[512];
-	char exePath[512];
+	std::string dir;
+	const char *exePath = nullptr;
 	QFileDialog dialog(this, tr("Open Qt Stylesheet (QSS)"));
 	QList<QUrl> urls;
 	QDir d;
 
-	fceuExecutablePath(exePath, sizeof(exePath));
+	exePath = fceuExecutablePath();
 
 	//urls = dialog.sidebarUrls();
 	urls << QUrl::fromLocalFile(QDir::rootPath());
@@ -421,7 +421,7 @@ void GuiConfDialog_t::openQss(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -473,13 +473,13 @@ void GuiConfDialog_t::openQPal(void)
 	int ret, useNativeFileDialogVal; //, useCustom;
 	QString filename;
 	std::string last, iniPath;
-	char dir[512];
-	char exePath[512];
+	std::string dir;
+	const char *exePath = nullptr;
 	QFileDialog dialog(this, tr("Open Qt QPalette File (QPAL)"));
 	QList<QUrl> urls;
 	QDir d;
 
-	fceuExecutablePath(exePath, sizeof(exePath));
+	exePath = fceuExecutablePath();
 
 	//urls = dialog.sidebarUrls();
 	urls << QUrl::fromLocalFile(QDir::rootPath());
@@ -525,7 +525,7 @@ void GuiConfDialog_t::openQPal(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -753,15 +753,17 @@ void fceuStyle::polish(QApplication *app)
 
 		if ( rccFilePath.size() == 0 )
 		{
-			char dir[1024], rccBase[256], tmpFile[2048];
+			std::string dir, rccBase, tmpFile;
 
-			parseFilepath( s.c_str(), dir, rccBase, NULL );
+			parseFilepath( s.c_str(), &dir, &rccBase, nullptr );
 
-			sprintf( tmpFile, "%s%s.rcc", dir, rccBase );
+			tmpFile.assign(dir);
+			tmpFile.append(rccBase);
+			tmpFile.append(".rcc");
 
-			//printf("RCC: '%s%s'\n", dir, rccBase );
+			//printf("RCC: '%s%s'\n", dir.c_str(), rccBase.c_str() );
 
-			if ( QResource::registerResource( tmpFile ) )
+			if ( QResource::registerResource( tmpFile.c_str() ) )
 			{
 				//printf("Loaded RCC File: '%s'\n", tmpFile );
 				rccFilePath.assign( tmpFile );
@@ -1176,14 +1178,14 @@ void GuiPaletteEditDialog_t::paletteSaveAs(void)
 	int ret, useNativeFileDialogVal; //, useCustom;
 	QString filename;
 	std::string last, iniPath;
-	char dir[512];
-	char exePath[512];
+	std::string dir;
+	const char *exePath = nullptr;
 	QFileDialog dialog(this, tr("Save QPalette (qpal)"));
 	QList<QUrl> urls;
 	QDir d;
 	QPalette pal = this->palette();
 
-	fceuExecutablePath(exePath, sizeof(exePath));
+	exePath = fceuExecutablePath();
 
 	//urls = dialog.sidebarUrls();
 	urls << QUrl::fromLocalFile(QDir::rootPath());
@@ -1230,7 +1232,7 @@ void GuiPaletteEditDialog_t::paletteSaveAs(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);

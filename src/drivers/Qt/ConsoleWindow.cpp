@@ -435,6 +435,7 @@ void consoleWin_t::winScreenChanged(QScreen *scr)
 void consoleWin_t::winActiveChanged(void)
 {
 	QWidget *w;
+	bool muteWindow = false;
 
 	w = this->window();
 
@@ -450,15 +451,16 @@ void consoleWin_t::winActiveChanged(void)
 			{
 				if ( hdl->isActive() )
 				{
-					FCEUD_MuteSoundOutput(false);
+					muteWindow = false;
 				}
 				else
 				{
-					FCEUD_MuteSoundOutput(true);
+					muteWindow = true;
 				}
 			}
 		}
 	}
+	FCEUD_MuteSoundWindow(muteWindow);
 }
 
 QSize consoleWin_t::calcRequiredSize(void)
@@ -850,6 +852,7 @@ void consoleWin_t::initHotKeys(void)
 	Hotkeys[HK_FRAME_ADVANCE].getShortcut()->setEnabled(false);
 	Hotkeys[HK_TURBO        ].getShortcut()->setEnabled(false);
 
+	connect( Hotkeys[ HK_VOLUME_MUTE ].getShortcut(), SIGNAL(activated()), this, SLOT(muteSoundVolume(void)) );
 	connect( Hotkeys[ HK_VOLUME_DOWN ].getShortcut(), SIGNAL(activated()), this, SLOT(decrSoundVolume(void)) );
 	connect( Hotkeys[ HK_VOLUME_UP   ].getShortcut(), SIGNAL(activated()), this, SLOT(incrSoundVolume(void)) );
 
@@ -2315,8 +2318,8 @@ void consoleWin_t::openROMFile(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
-	char *romDir;
+	std::string dir;
+	const char *romDir;
 	QFileDialog  dialog(this, tr("Open ROM File") );
 	QList<QUrl> urls;
 	QDir d;
@@ -2358,9 +2361,9 @@ void consoleWin_t::openROMFile(void)
 
 	g_config->getOption ("SDL.LastOpenFile", &last );
 
-	getDirFromFile( last.c_str(), dir );
+	getDirFromFile( last.c_str(), dir);
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -2418,8 +2421,8 @@ void consoleWin_t::loadNSF(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
-	char *romDir;
+	std::string dir;
+	const char *romDir;
 	QFileDialog  dialog(this, tr("Load NSF File") );
 	QList<QUrl> urls;
 	QDir d;
@@ -2453,7 +2456,7 @@ void consoleWin_t::loadNSF(void)
 
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -2492,7 +2495,7 @@ void consoleWin_t::loadStateFrom(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	const char *base;
 	QFileDialog  dialog(this, tr("Load State From File") );
 	QList<QUrl> urls;
@@ -2537,7 +2540,7 @@ void consoleWin_t::loadStateFrom(void)
 
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -2576,7 +2579,7 @@ void consoleWin_t::saveStateAs(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	const char *base;
 	QFileDialog  dialog(this, tr("Save State To File") );
 	QList<QUrl> urls;
@@ -2628,7 +2631,7 @@ void consoleWin_t::saveStateAs(void)
 	}
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -3376,7 +3379,7 @@ void consoleWin_t::loadGameGenieROM(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	QFileDialog  dialog(this, tr("Open Game Genie ROM") );
 	QList<QUrl> urls;
 
@@ -3397,7 +3400,7 @@ void consoleWin_t::loadGameGenieROM(void)
 
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -3471,7 +3474,7 @@ void consoleWin_t::fdsLoadBiosFile(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	QFileDialog  dialog(this, tr("Load FDS BIOS (disksys.rom)") );
 	QList<QUrl> urls;
 
@@ -3490,9 +3493,9 @@ void consoleWin_t::fdsLoadBiosFile(void)
 
 	g_config->getOption ("SDL.LastOpenFile", &last );
 
-	getDirFromFile( last.c_str(), dir );
+	getDirFromFile( last.c_str(), dir);
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -3702,6 +3705,13 @@ void consoleWin_t::setCustomAutoFire(void)
 		g_config->setOption("SDL.AutofireCustomOffFrames" , autoFireOffFrames);
 		g_config->save();
 	}
+}
+
+void consoleWin_t::muteSoundVolume(void)
+{
+	FCEU_WRAPPER_LOCK();
+	FCEUD_SoundToggle();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::incrSoundVolume(void)
