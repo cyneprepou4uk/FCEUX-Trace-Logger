@@ -25,6 +25,8 @@
 #include <string.h>
 #include <map>
 
+#include "cart.h"
+
 struct TMasterRomInfo
 {
 	uint64 md5lower;
@@ -46,8 +48,8 @@ extern uint8 *ExtraNTARAM;
 extern uint8 **VPageR;
 extern int iNesSave(void); //bbit Edited: line added
 extern int iNesSaveAs(const char* name);
-extern char LoadedRomFName[2048]; //bbit Edited: line added
-extern char LoadedRomFNamePatchToUse[2048];
+extern char LoadedRomFName[4096]; //bbit Edited: line added
+extern char LoadedRomFNamePatchToUse[4096];
 extern char *iNesShortFName(void);
 extern const TMasterRomInfo* MasterRomInfo;
 extern TMasterRomInfoParams MasterRomInfoParams;
@@ -272,6 +274,8 @@ void Mapper250_Init(CartInfo *);
 void Mapper252_Init(CartInfo *);
 void Mapper253_Init(CartInfo *);
 void Mapper254_Init(CartInfo *);
+void Mapper255_Init(CartInfo *);
+void Mapper354_Init(CartInfo *);
 void Mapper406_Init(CartInfo *);
 
 void INX_007T_Init(CartInfo* info);

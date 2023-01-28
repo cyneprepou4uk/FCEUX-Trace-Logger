@@ -58,8 +58,8 @@ uint8 Mirroring = 0;
 uint8 MirroringAs2bits = 0;
 uint32 ROM_size = 0;
 uint32 VROM_size = 0;
-char LoadedRomFName[2048]; //mbg merge 7/17/06 added
-char LoadedRomFNamePatchToUse[2048];
+char LoadedRomFName[4096]; //mbg merge 7/17/06 added
+char LoadedRomFNamePatchToUse[4096];
 
 static int CHRRAMSize = -1;
 static int iNES_Init(int num);
@@ -770,7 +770,7 @@ BMAPPINGLocal bmap[] = {
 	{"SAN GUO ZHI PIRATE",	252, Mapper252_Init},
 	{"DRAGON BALL PIRATE",	253, Mapper253_Init},
 	{"",					254, Mapper254_Init},
-//	{"",					255, Mapper255_Init},	// No good dumps for this mapper
+	{"",					255, Mapper255_Init},	// dupe of 225
 
 //-------- Mappers 256-511 is the Supplementary Multilingual Plane ----------
 //-------- Mappers 512-767 is the Supplementary Ideographic Plane -----------
@@ -789,6 +789,7 @@ BMAPPINGLocal bmap[] = {
 	{"810544-CA-1",			261, BMC810544CA1_Init},
 	{"AA6023/AA6023B",		268, AA6023_Init},
 	{"COOLGIRL",			342, COOLGIRL_Init },
+	{"FAM250/81-01-39-C/SCHI-24",			354, Mapper354_Init },
 
 	{"Impact Soft MMC3 Flash Board",	406, Mapper406_Init },
 	{"INX_007T_V01",		470, INX_007T_Init },

@@ -853,14 +853,16 @@ static void log_callback( void *avcl, int level, const char *fmt, va_list vl)
 int loadCodecConfig( int type, const char *codec_name, AVCodecContext *ctx)
 {
 	int i,j;
-	char filename[512];
+	char filename[4096];
 	char line[512];
 	char section[256], id[256], val[256];
 	void *obj, *child;
 	FILE *fp;
 	const char *baseDir = FCEUI_GetBaseDirectory();
 
-	sprintf( filename, "%s/avi/%s.conf", baseDir, codec_name );
+	snprintf( filename, sizeof(filename), "%s/avi/%s.conf", baseDir, codec_name );
+
+	filename[sizeof(filename)-1] = 0;
 
 	fp = fopen( filename, "r");
 
@@ -991,12 +993,14 @@ int saveCodecConfig( int type, const char *codec_name, AVCodecContext *ctx)
 	void *obj, *child = NULL;
 	FILE *fp;
 	uint8_t *str;
-	char filename[512];
+	char filename[4096];
 	const AVOption *opt;
 	bool useOpt;
 	const char *baseDir = FCEUI_GetBaseDirectory();
 
-	sprintf( filename, "%s/avi/%s.conf", baseDir, codec_name );
+	snprintf( filename, sizeof(filename), "%s/avi/%s.conf", baseDir, codec_name );
+
+	filename[sizeof(filename)-1] = 0;
 
 	fp = fopen( filename, "w");
 
@@ -1319,9 +1323,14 @@ static AVFrame *alloc_audio_frame(const AVCodecContext *c,
 #if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 28, 100)
 static int select_audio_channel_layout(const OutputStream *ost, const AVCodec *codec, AVChannelLayout *dst)
 {
-	const AVChannelLayout *p, *best_ch_layout;
-	const AVChannelLayout defaultLayout = AV_CHANNEL_LAYOUT_MONO;
 	int best_nb_channels = 0;
+	const AVChannelLayout *p, *best_ch_layout;
+	#if __cplusplus >= 202002L
+	const AVChannelLayout defaultLayout = AV_CHANNEL_LAYOUT_MONO;
+	#else
+	AVChannelLayout defaultLayout;
+	av_channel_layout_from_mask( &defaultLayout, AV_CH_LAYOUT_MONO );
+	#endif
 
 	if (!codec->ch_layouts)
 	{
@@ -1505,7 +1514,12 @@ static int initAudioStream( const char *codec_name, OutputStream *ost )
 #if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(57, 28, 100)
 	av_opt_set_int(ost->swr_ctx, "in_channel_layout",  AV_CH_LAYOUT_MONO,   0);
 #else
+	#if __cplusplus >= 202002L
 	AVChannelLayout src_ch_layout = AV_CHANNEL_LAYOUT_MONO;
+	#else
+	AVChannelLayout src_ch_layout;
+	av_channel_layout_from_mask( &src_ch_layout, AV_CH_LAYOUT_MONO );
+	#endif
 	av_opt_set_chlayout(ost->swr_ctx, "in_chlayout", &src_ch_layout, 0);
 #endif
 	av_opt_set_sample_fmt(ost->swr_ctx, "out_sample_fmt",     c->sample_fmt,       0);
@@ -2124,7 +2138,7 @@ int aviRecordOpenFile( const char *filepath )
 	char fourcc[8];
 	gwavi_audio_t  audioConfig;
 	double fps;
-	char fileName[1024];
+	std::string fileName;
 	char txt[512];
 	const char *romFile;
 
@@ -2137,7 +2151,7 @@ int aviRecordOpenFile( const char *filepath )
 
 	if ( filepath != NULL )
 	{
-		strcpy( fileName, filepath );
+		fileName.assign( filepath );
 	}
 	else
 	{
@@ -2156,21 +2170,21 @@ int aviRecordOpenFile( const char *filepath )
 
 			if ( lastPath.size() > 0 )
 			{
-				strcpy( fileName, lastPath.c_str() );
-				strcat( fileName, "/" );
+				fileName.assign( lastPath.c_str() );
+				fileName.append( "/" );
 			}
 			else if ( baseDir )
 			{
-				strcpy( fileName, baseDir );
-				strcat( fileName, "/avi/" );
+				fileName.assign( baseDir );
+				fileName.append( "/avi/" );
 			}
 			else
 			{
-				fileName[0] = 0;
+				fileName.clear();
 			}
-			strcat( fileName, base );
-			strcat( fileName, ".avi");
-			//printf("AVI Filepath:'%s'\n", fileName );
+			fileName.append( base );
+			fileName.append(".avi");
+			//printf("AVI Filepath:'%s'\n", fileName.c_str() );
 		}
 		else
 		{
@@ -2178,9 +2192,9 @@ int aviRecordOpenFile( const char *filepath )
 		}
 	}
 
-	if ( fileName[0] != 0 )
+	if ( fileName.size() > 0 )
 	{
-		QFile file(fileName);
+		QFile file(fileName.c_str());
 
 		if ( file.exists() )
 		{
@@ -2188,7 +2202,7 @@ int aviRecordOpenFile( const char *filepath )
 			std::string msg;
 
 			msg = "Pre-existing AVI file will be overwritten:\n\n" +
-				std::string(fileName) +	"\n\nReplace file?";
+				fileName +	"\n\nReplace file?";
 
 			ret = QMessageBox::warning( consoleWindow, QObject::tr("Overwrite Warning"),
 					QString::fromStdString(msg), QMessageBox::Yes | QMessageBox::No );
@@ -2286,7 +2300,7 @@ int aviRecordOpenFile( const char *filepath )
 #ifdef _USE_LIBAV
 	if ( aviDriver == AVI_DRIVER_LIBAV )
 	{
-		if ( LIBAV::initMedia( fileName ) )
+		if ( LIBAV::initMedia( fileName.c_str() ) )
 		{
 			char msg[512];
 			fprintf( avLogFp, "Error: Failed to open AVI file.\n");
@@ -2301,7 +2315,7 @@ int aviRecordOpenFile( const char *filepath )
 	{
 		gwavi = new gwavi_t();
 
-		if ( gwavi->open( fileName, nes_shm->video.ncol, nes_shm->video.nrow, fourcc, fps, recordAudio ? &audioConfig : NULL ) )
+		if ( gwavi->open( fileName.c_str(), nes_shm->video.ncol, nes_shm->video.nrow, fourcc, fps, recordAudio ? &audioConfig : NULL ) )
 		{
 			char msg[512];
 			fprintf( avLogFp, "Error: Failed to open AVI file.\n");
