@@ -744,7 +744,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 		{
 			EmulationPaused = EMULATIONPAUSED_FA;
 		}
-		if (frameAdvance_Delay_count < frameAdvanceDelayScaled)
+		if ( static_cast<unsigned int>(frameAdvance_Delay_count) < frameAdvanceDelayScaled)
 		{
 			frameAdvance_Delay_count++;
 		}
@@ -1066,7 +1066,7 @@ void FCEU_ResetVidSys(void) {
 
 FCEUS FSettings;
 
-void FCEU_printf(const char *format, ...) 
+void FCEU_printf( __FCEU_PRINTF_FORMAT const char *format, ...)
 {
 	char temp[2048];
 
@@ -1086,7 +1086,7 @@ void FCEU_printf(const char *format, ...)
 	va_end(ap);
 }
 
-void FCEU_PrintError(const char *format, ...) 
+void FCEU_PrintError( __FCEU_PRINTF_FORMAT const char *format, ...)
 {
 	char temp[2048];
 
@@ -1250,8 +1250,8 @@ void FCEUI_FrameAdvanceEnd(void) {
 }
 
 void FCEUI_FrameAdvance(void) {
-	frameAdvanceRequested = true;
 	frameAdvance_Delay_count = 0;
+	frameAdvanceRequested = true;
 }
 
 static int AutosaveCounter = 0;
@@ -1268,7 +1268,7 @@ void UpdateAutosave(void) {
 		FCEUSS_Save(f, false);
 		AutoSS = true;  //Flag that an auto-savestate was made
 		free(f);
-        f = NULL;
+		f = NULL;
 		AutosaveStatus[AutosaveIndex] = 1;
 	}
 }

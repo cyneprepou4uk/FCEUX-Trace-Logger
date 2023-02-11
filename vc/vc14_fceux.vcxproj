@@ -288,6 +288,7 @@ xcopy /y /d "$(ProjectDir)\..\src\drivers\win\7z_64.dll" "$(OutDir)"</Command>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <DisableSpecificWarnings>4267;4244;</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <AdditionalDependencies>comctl32.lib;ws2_32.lib;vfw32.lib;winmm.lib;htmlhelp.lib;../src/drivers/win/directx/x64/dsound.lib;../src/drivers/win/directx/x64/dxguid.lib;../src/drivers/win/directx/x64/ddraw.lib;../src/drivers/win/directx/x64/dinput.lib;../src/drivers/win/lua/x64/lua51.lib;../src/drivers/win/lua/x64/luaperks.lib;psapi.lib;mpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -323,6 +324,7 @@ xcopy /y /d "$(ProjectDir)\..\src\drivers\win\7z_64.dll" "$(OutDir)"</Command>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <DisableSpecificWarnings>4267;4244;</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <AdditionalDependencies>comctl32.lib;ws2_32.lib;vfw32.lib;winmm.lib;htmlhelp.lib;../src/drivers/win/directx/x64/dsound.lib;../src/drivers/win/directx/x64/dxguid.lib;../src/drivers/win/directx/x64/ddraw.lib;../src/drivers/win/directx/x64/dinput.lib;../src/drivers/win/lua/x64/lua51.lib;../src/drivers/win/lua/x64/luaperks.lib;psapi.lib;mpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -360,6 +362,7 @@ xcopy /y /d "$(ProjectDir)\..\src\drivers\win\7z_64.dll" "$(OutDir)"</Command>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <DisableSpecificWarnings>4267;4244;</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <AdditionalDependencies>comctl32.lib;ws2_32.lib;vfw32.lib;winmm.lib;htmlhelp.lib;../src/drivers/win/directx/x64/dsound.lib;../src/drivers/win/directx/x64/dxguid.lib;../src/drivers/win/directx/x64/ddraw.lib;../src/drivers/win/directx/x64/dinput.lib;../src/drivers/win/lua/x64/lua51.lib;../src/drivers/win/lua/x64/luaperks.lib;psapi.lib;mpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -559,6 +562,7 @@ xcopy /y /d "$(ProjectDir)\..\src\drivers\win\7z_64.dll" "$(OutDir)"</Command>
     <ClCompile Include="..\src\boards\t-262.cpp" />
     <ClCompile Include="..\src\boards\tengen.cpp" />
     <ClCompile Include="..\src\boards\tf-1201.cpp" />
+    <ClCompile Include="..\src\debugsymboltable.cpp" />
     <ClCompile Include="..\src\drivers\common\args.cpp" />
     <ClCompile Include="..\src\drivers\common\cheat.cpp" />
     <ClCompile Include="..\src\drivers\common\config.cpp" />
@@ -739,6 +743,7 @@ xcopy /y /d "$(ProjectDir)\..\src\drivers\win\7z_64.dll" "$(OutDir)"</Command>
     <ClCompile Include="..\src\utils\ioapi.cpp" />
     <ClCompile Include="..\src\utils\md5.cpp" />
     <ClCompile Include="..\src\utils\memory.cpp" />
+    <ClCompile Include="..\src\utils\mutex.cpp" />
     <ClCompile Include="..\src\utils\unzip.cpp" />
     <ClCompile Include="..\src\utils\xstring.cpp" />
     <ClCompile Include="..\src\lua\src\lapi.c">
@@ -1141,6 +1146,7 @@ xcopy /y /d "$(ProjectDir)\..\src\drivers\win\7z_64.dll" "$(OutDir)"</Command>
     <ClInclude Include="..\src\utils\ioapi.h" />
     <ClInclude Include="..\src\utils\md5.h" />
     <ClInclude Include="..\src\utils\memory.h" />
+    <ClInclude Include="..\src\utils\mutex.h" />
     <ClInclude Include="..\src\utils\unzip.h" />
     <ClInclude Include="..\src\utils\valuearray.h" />
     <ClInclude Include="..\src\utils\xstring.h" />

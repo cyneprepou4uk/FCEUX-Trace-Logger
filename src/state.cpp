@@ -133,7 +133,7 @@ static int SubWrite(EMUFILE* os, SFORMAT *sf)
 
 	while(sf->v)
 	{
-		if(sf->s==~0)		//Link to another struct
+		if(sf->s==~0u)		//Link to another struct
 		{
 			uint32 tmp;
 
@@ -191,7 +191,7 @@ static SFORMAT *CheckS(SFORMAT *sf, uint32 tsize, char *desc)
 {
 	while(sf->v)
 	{
-		if(sf->s==~0)		// Link to another SFORMAT structure.
+		if(sf->s==~0u)		// Link to another SFORMAT structure.
 		{
 			SFORMAT *tmp;
 			if((tmp= CheckS((SFORMAT *)sf->v, tsize, desc) ))
@@ -427,7 +427,7 @@ bool FCEUSS_SaveMS(EMUFILE* outstream, int compressionLevel)
 	if(SPostSave) SPostSave();
 
 	//save the length of the file
-	int len = memory_savestate.size();
+	size_t len = memory_savestate.size();
 
 	//sanity check: len and totalsize should be the same
 	if(len != totalsize)
@@ -438,7 +438,7 @@ bool FCEUSS_SaveMS(EMUFILE* outstream, int compressionLevel)
 
 	int error = Z_OK;
 	uint8* cbuf = (uint8*)memory_savestate.buf();
-	uLongf comprlen = -1;
+	uLongf comprlen = ~0lu;
 	if(compressionLevel != Z_NO_COMPRESSION && (compressSavestates || FCEUMOV_Mode(MOVIEMODE_TASEDITOR)))
 	{
 		// worst case compression: zlib says "0.1% larger than sourceLen plus 12 bytes"
@@ -457,7 +457,7 @@ bool FCEUSS_SaveMS(EMUFILE* outstream, int compressionLevel)
 
 	//dump it to the destination file
 	outstream->fwrite((char*)header,16);
-	outstream->fwrite((char*)cbuf,comprlen==-1?totalsize:comprlen);
+	outstream->fwrite((char*)cbuf,comprlen==~0lu?totalsize:comprlen);
 
 	return error == Z_OK;
 }
@@ -511,13 +511,12 @@ void FCEUSS_Save(const char *fname, bool display_message)
 		LuaSaveData saveData;
 		CallRegisteredLuaSaveFunctions(CurrentState, saveData);
 
-		char luaSaveFilename [512];
-		strncpy(luaSaveFilename, fn.c_str(), 512);
-		luaSaveFilename[512-(1+7/*strlen(".luasav")*/)] = '\0';
-		strcat(luaSaveFilename, ".luasav");
+		std::string luaSaveFilename;
+		luaSaveFilename.assign(fn.c_str());
+		luaSaveFilename.append(".luasav");
 		if(saveData.recordList)
 		{
-			FILE* luaSaveFile = fopen(luaSaveFilename, "wb");
+			FILE* luaSaveFile = fopen(luaSaveFilename.c_str(), "wb");
 			if(luaSaveFile)
 			{
 				saveData.ExportRecords(luaSaveFile);
@@ -526,7 +525,7 @@ void FCEUSS_Save(const char *fname, bool display_message)
 		}
 		else
 		{
-			unlink(luaSaveFilename);
+			unlink(luaSaveFilename.c_str());
 		}
 	}
 	#endif
@@ -666,22 +665,22 @@ bool FCEUSS_LoadFP(EMUFILE* is, ENUM_SSLOADPARAMS params)
 		return ret;
 	}
 
-	int totalsize = FCEU_de32lsb(header + 4);
-	int stateversion = FCEU_de32lsb(header + 8);
-	int comprlen = FCEU_de32lsb(header + 12);
+	size_t totalsize  = FCEU_de32lsb(header + 4);
+	int stateversion  = FCEU_de32lsb(header + 8);
+	uint32_t comprlen = FCEU_de32lsb(header + 12);
 
 	// reinit memory_savestate
 	// memory_savestate is global variable which already has its vector of bytes, so no need to allocate memory every time we use save/loadstate
-	if ((int)(memory_savestate.get_vec())->size() < totalsize)
+	if ((memory_savestate.get_vec())->size() < totalsize)
 		(memory_savestate.get_vec())->resize(totalsize);
 	memory_savestate.set_len(totalsize);
 	memory_savestate.unfail();
 	memory_savestate.fseek(0, SEEK_SET);
 
-	if(comprlen != -1)
+	if(comprlen != ~0u)
 	{
 		// the savestate is compressed: read from is to compressed_buf, then decompress from compressed_buf to memory_savestate.vec
-		if ((int)compressed_buf.size() < comprlen) compressed_buf.resize(comprlen);
+		if (compressed_buf.size() < comprlen) compressed_buf.resize(comprlen);
 		is->fread(&compressed_buf[0], comprlen);
 
 		uLongf uncomprlen = totalsize;
@@ -723,7 +722,7 @@ bool FCEUSS_LoadFP(EMUFILE* is, ENUM_SSLOADPARAMS params)
 
 bool FCEUSS_Load(const char *fname, bool display_message)
 {
-	EMUFILE* st;
+	fceuScopedPtr <EMUFILE> st; // fceuScopedPtr will auto delete the allocated EMUFILE at function return.
 	std::string fn;
 
 	//mbg movie - this needs to be overhauled
@@ -743,14 +742,15 @@ bool FCEUSS_Load(const char *fname, bool display_message)
 	{
 		st = FCEUD_UTF8_fstream(fname, "rb");
 		fn.assign(fname);
-	} else
+	}
+	else
 	{
 		fn = FCEU_MakeFName(FCEUMKF_STATE,CurrentState,fname);
 		st=FCEUD_UTF8_fstream(fn.c_str(),"rb");
         	lastLoadstateMade.assign(fn);
 	}
 
-	if (st == NULL || (st->get_fp() == NULL))
+	if (st.get() == NULL || (st.get()->get_fp() == NULL))
 	{
 		if (display_message)
 		{
@@ -764,38 +764,37 @@ bool FCEUSS_Load(const char *fname, bool display_message)
 	//If in bot mode, don't do a backup when loading.
 	//Otherwise you eat at the hard disk, since so many
 	//states are being loaded.
-	if (FCEUSS_LoadFP(st, backupSavestates ? SSLOADPARAM_BACKUP : SSLOADPARAM_NOBACKUP))
+	if (FCEUSS_LoadFP(st.get(), backupSavestates ? SSLOADPARAM_BACKUP : SSLOADPARAM_NOBACKUP))
 	{
 		if (fname)
 		{
 			char szFilename[260]={0};
 			splitpath(fname, 0, 0, szFilename, 0);
-            if (display_message)
+			if (display_message)
 			{
-                FCEU_DispMessage("State %s loaded.", 0, szFilename);
+				FCEU_DispMessage("State %s loaded.", 0, szFilename);
 				//FCEU_DispMessage("State %s loaded. Filename: %s", 0, szFilename, fn.c_str());
-            }
-		} else
+			}
+		}
+		else
 		{
-            if (display_message)
+			if (display_message)
 			{
-                FCEU_DispMessage("State %d loaded.", 0, CurrentState);
+				FCEU_DispMessage("State %d loaded.", 0, CurrentState);
 				//FCEU_DispMessage("State %d loaded. Filename: %s", 0, CurrentState, fn.c_str());
-            }
+			}
 			SaveStateStatus[CurrentState] = 1;
 		}
-		delete st;
 
 		#ifdef _S9XLUA_H
 		if (!internalSaveLoad)
 		{
 			LuaSaveData saveData;
 
-			char luaSaveFilename [512];
-			strncpy(luaSaveFilename, fn.c_str(), 512);
-			luaSaveFilename[512-(1+7/*strlen(".luasav")*/)] = '\0';
-			strcat(luaSaveFilename, ".luasav");
-			FILE* luaSaveFile = fopen(luaSaveFilename, "rb");
+			std::string luaSaveFilename;
+			luaSaveFilename.assign(fn.c_str());
+			luaSaveFilename.append(".luasav");
+			FILE* luaSaveFile = fopen(luaSaveFilename.c_str(), "rb");
 			if(luaSaveFile)
 			{
 				saveData.ImportRecords(luaSaveFile);
@@ -807,7 +806,7 @@ bool FCEUSS_Load(const char *fname, bool display_message)
 		#endif
 
 #ifdef __WIN_DRIVER__
-	Update_RAM_Search(); // Update_RAM_Watch() is also called.
+		Update_RAM_Search(); // Update_RAM_Watch() is also called.
 #endif
 
 		//Update input display if movie is loaded
@@ -817,7 +816,8 @@ bool FCEUSS_Load(const char *fname, bool display_message)
 		cur_input_display = FCEU_GetJoyJoy(); //Input display should show the last buttons pressed (stored in the savestate)
 
 		return true;
-	} else
+	}
+	else
 	{
 		if(!fname)
 			SaveStateStatus[CurrentState] = 1;
@@ -827,7 +827,6 @@ bool FCEUSS_Load(const char *fname, bool display_message)
 			FCEU_DispMessage("Error(s) reading state %d!", 0, CurrentState);
 			//FCEU_DispMessage("Error(s) reading state %d! Filename: %s", 0, CurrentState, fn);
 		}
-		delete st;
 		return 0;
 	}
 }
@@ -874,7 +873,7 @@ void AddExState(void *v, uint32 s, int type, const char *desc)
 	//do not accept extra state information if a null pointer was provided for v, so list won't terminate early
 	if (v == 0) return;
 	
-	if(s==~0)
+	if(s==~0u)
 	{
 		SFORMAT* sf = (SFORMAT*)v;
 		std::map<std::string,bool> names;

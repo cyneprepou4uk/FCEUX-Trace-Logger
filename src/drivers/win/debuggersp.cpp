@@ -25,6 +25,7 @@
 #include "../../fceu.h"
 #include "../../ines.h"
 #include "../../debug.h"
+#include "../../debugsymboltable.h"
 #include "../../conddebug.h"
 
 #include <stdio.h>
@@ -671,6 +672,16 @@ char* generateNLFilenameForAddress(uint16 address)
 	}
 	return NLfilename;
 }
+static int getBankIndexForAddress(uint16 address)
+{
+	int bank = -1;
+
+	if (address >= 0x8000)
+	{
+		bank = getBank(address);
+	}
+	return bank;
+}
 Name* getNamesPointerForAddress(uint16 address)
 {
 	if(address >= 0x8000)
@@ -1150,6 +1161,8 @@ void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char*
 
 				node->next = 0;
 				setNamesPointerForAddress(tmpNewAddress, node);
+
+				debugSymbolTable.addSymbolAtBankOffset(getBankIndexForAddress(tmpNewAddress), tmpNewAddress, node->name, node->comment);
 			}
 			else
 			{
@@ -1191,6 +1204,28 @@ void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char*
 							strcpy(node->comment, newComment);
 						}
 
+						debugSymbol_t* sym = debugSymbolTable.getSymbolAtBankOffset(getBankIndexForAddress(tmpNewAddress), tmpNewAddress);
+
+						if (sym)
+						{
+							if (node->name)
+							{
+								sym->updateName(node->name);
+							}
+							else
+							{
+								sym->updateName("");
+							}
+							if (node->comment)
+							{
+								sym->commentAssign(node->comment);
+							}
+							else
+							{
+								sym->commentAssign("");
+							}
+							sym->trimTrailingSpaces();
+						}
 						break;
 					}
 
@@ -1233,6 +1268,7 @@ void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char*
 
 						newNode->next = 0;
 						node->next = newNode;
+						debugSymbolTable.addSymbolAtBankOffset(getBankIndexForAddress(tmpNewAddress), tmpNewAddress, newNode->name, newNode->comment);
 						break;
 					}
 				}
@@ -1270,6 +1306,7 @@ void DeleteSymbolicName(uint16 address, int size)
 			prev = node;
 			node = node->next;
 		}
+		debugSymbolTable.deleteSymbolAtBankOffset(getBankIndexForAddress(tmpAddress), tmpAddress);
 		++tmpAddress;
 	} while (++i < size);
 }

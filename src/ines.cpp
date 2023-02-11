@@ -394,7 +394,7 @@ static void CheckHInfo(uint64 partialmd5) {
 	int32 tofix = 0, x, mask;
 
 	MasterRomInfo = NULL;
-	for (int i = 0; i < ARRAY_SIZE(sMasterRomInfo); i++) {
+	for (size_t i = 0; i < ARRAY_SIZE(sMasterRomInfo); i++) {
 		const TMasterRomInfo& info = sMasterRomInfo[i];
 		if (info.md5lower != partialmd5)
 			continue;
@@ -403,7 +403,7 @@ static void CheckHInfo(uint64 partialmd5) {
 		if (!info.params) break;
 
 		std::vector<std::string> toks = tokenize_str(info.params, ",");
-		for (int j = 0; j < (int)toks.size(); j++) {
+		for (size_t j = 0; j < toks.size(); j++) {
 			std::vector<std::string> parts = tokenize_str(toks[j], "=");
 			MasterRomInfoParams[parts[0]] = parts[1];
 		}
@@ -899,7 +899,7 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 			GameInfo->type = GIT_VSUNI;
 			break;
 		default:
-			FCEU_PrintError("Game type is not supported at all.", MapperNo);
+			FCEU_PrintError("Game type is not supported at all.");
 			goto init_error;
 		}
 	}
@@ -969,7 +969,7 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 
 	FCEU_printf(" PRG ROM: %d x 16KiB = %d KiB\n", round ? ROM_size : not_round_size, (round ? ROM_size : not_round_size) * 16);
 	FCEU_printf(" CHR ROM: %d x  8KiB = %d KiB\n", VROM_size, VROM_size * 8);
-	FCEU_printf(" ROM CRC32: 0x%08lx\n", iNESGameCRC32);
+	FCEU_printf(" ROM CRC32: 0x%08x\n", iNESGameCRC32);
 	{
 		int x;
 		FCEU_printf(" ROM MD5:  0x");
@@ -978,7 +978,7 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 		FCEU_printf("\n");
 	}
 
-	for (int mappertest = 0; mappertest < (sizeof bmap / sizeof bmap[0]) - 1; mappertest++) {
+	for (size_t mappertest = 0; mappertest < (sizeof bmap / sizeof bmap[0]) - 1; mappertest++) {
 		if (bmap[mappertest].number == MapperNo) {
 			mappername = bmap[mappertest].name;
 			break;

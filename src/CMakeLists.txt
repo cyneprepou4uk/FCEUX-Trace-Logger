@@ -41,7 +41,8 @@ if(WIN32)
      add_definitions( -DMSVC -D_CRT_SECURE_NO_WARNINGS )
      add_definitions( -D__SDL__  -D__QT_DRIVER__  -DQT_DEPRECATED_WARNINGS )
      add_definitions( -DFCEUDEF_DEBUGGER )
-     add_definitions( /wd4267 /wd4244 /wd4018 )
+     add_definitions( /wd4267 /wd4244 )
+     #add_definitions( /wd4018 ) # Integer comparison sign mismatch warnings
      include_directories( ${SDL_INSTALL_PREFIX}/SDL2/include )
      include_directories( ${CMAKE_CURRENT_SOURCE_DIR}/drivers/win/zlib )
      set( OPENGL_LDFLAGS  OpenGL::GL )
@@ -77,7 +78,8 @@ else(WIN32)
   find_package(OpenGL REQUIRED)
   find_package(ZLIB REQUIRED)
 
-  add_definitions( -Wall  -Wno-write-strings  -Wno-sign-compare  -Wno-parentheses  -Wno-unused-local-typedefs  -fPIC )
+  add_definitions( -Wall  -Wno-write-strings  -Wno-parentheses  -Wno-unused-local-typedefs  -fPIC )
+  #add_definitions( -Wno-sign-compare )  # Integer comparison sign mismatch warnings
   add_definitions( -DFCEUDEF_DEBUGGER )
 
   #if ( ${QT6} )
@@ -276,6 +278,7 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/conddebug.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/config.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/debug.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/debugsymboltable.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/drawing.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/fceu.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/fds.cpp
@@ -499,13 +502,13 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/utils/guid.cpp    
   	${CMAKE_CURRENT_SOURCE_DIR}/utils/md5.cpp  
   	${CMAKE_CURRENT_SOURCE_DIR}/utils/memory.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/utils/mutex.cpp
 )
 
 
 set(SRC_DRIVERS_COMMON
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/args.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cheat.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/configSys.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/hq2x.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/hq3x.cpp

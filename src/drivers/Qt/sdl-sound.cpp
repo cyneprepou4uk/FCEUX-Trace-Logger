@@ -223,7 +223,7 @@ InitSound()
 	i = 0;
 	while (supportedSampleRates[i] != 0)
 	{
-		if (soundrate == supportedSampleRates[i])
+		if ( static_cast<unsigned int>(soundrate) == supportedSampleRates[i])
 		{
 			sampleRateIsSupported = true;
 			break;
@@ -262,7 +262,7 @@ InitSound()
 	s_BufferSize = soundbufsize * soundrate / 1000;
 
 	// For safety, set a bare minimum:
-	if (s_BufferSize < spec.samples * 4)
+	if (s_BufferSize < static_cast<unsigned int>(spec.samples * 4))
 	{
 		s_BufferSize = spec.samples * 4;
 	}

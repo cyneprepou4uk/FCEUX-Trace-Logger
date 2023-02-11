@@ -693,7 +693,7 @@ bool LoadFM2(MovieData& movieData, EMUFILE* fp, int size, bool stopAfterHeader)
 		{
 			LoadFM2_binarychunk(movieData, fp, size);
 			return true;
-		} else if (isnewline && movieData.loadFrameCount == movieData.records.size())
+		} else if (isnewline && static_cast<size_t>(movieData.loadFrameCount) == movieData.records.size())
 			// exit prematurely if loaded the specified amound of records
 			return true;
 		switch(state)
@@ -994,7 +994,7 @@ bool MovieData::loadSaveramFrom(std::vector<uint8>* buf)
 			return false;
 		}
 
-		if(currCartInfo->SaveGameLen[i] != len)
+		if(currCartInfo->SaveGameLen[i] != static_cast<unsigned int>(len))
 		{
 			FCEU_PrintError("movie battery load mismatch 3");
 			return false;
@@ -1267,7 +1267,7 @@ void FCEUMOV_AddInputState()
 		}
 
 		//if we are on the last frame, then pause the emulator if the player requested it
-		if (currFrameCounter == currMovieData.records.size()-1)
+		if ( static_cast<size_t>(currFrameCounter) == currMovieData.records.size()-1)
 		{
 			if(FCEUD_PauseAfterPlayback())
 			{
@@ -1583,10 +1583,10 @@ bool FCEUMOV_ReadState(EMUFILE* is, uint32 size)
 					//TODO: turn frame counter to red to get attention
 					if (!backupSavestates)	//If backups are disabled we can just resume normally since we can't restore so stop movie and inform user
 					{
-						FCEU_PrintError("Error: Savestate taken from a frame (%d) after the final frame in the savestated movie (%d) cannot be verified against current movie (%d). This is not permitted.\nUnable to restore backup, movie playback stopped.", currFrameCounter, tempMovieData.records.size() - 1, currMovieData.records.size() - 1);
+						FCEU_PrintError("Error: Savestate taken from a frame (%d) after the final frame in the savestated movie (%zi) cannot be verified against current movie (%zi). This is not permitted.\nUnable to restore backup, movie playback stopped.", currFrameCounter, tempMovieData.records.size() - 1, currMovieData.records.size() - 1);
 						FCEUI_StopMovie();
 					} else
-						FCEU_PrintError("Savestate taken from a frame (%d) after the final frame in the savestated movie (%d) cannot be verified against current movie (%d). This is not permitted.", currFrameCounter, tempMovieData.records.size() - 1, currMovieData.records.size() - 1);
+						FCEU_PrintError("Savestate taken from a frame (%d) after the final frame in the savestated movie (%zi) cannot be verified against current movie (%zi). This is not permitted.", currFrameCounter, tempMovieData.records.size() - 1, currMovieData.records.size() - 1);
 					return false;
 				}
 			}
@@ -1742,7 +1742,7 @@ void FCEUI_MovieToggleReadOnly()
 		strcpy(message, "Movie is now Read+Write");
 	
 	strcat(message, GetMovieModeStr());
-	FCEU_DispMessage(message,0);
+	FCEU_DispMessage("%s",0,message);
 }
 
 void FCEUI_MovieToggleRecording()
@@ -1786,7 +1786,7 @@ void FCEUI_MovieToggleRecording()
 
 	strcat(message, GetMovieModeStr());
 
-	FCEU_DispMessage(message, 0);
+	FCEU_DispMessage("%s",0,message);
 }
 
 void FCEUI_MovieInsertFrame()
@@ -1813,7 +1813,7 @@ void FCEUI_MovieInsertFrame()
 		strcat(message, GetMovieModeStr());
 	}
 
-	FCEU_DispMessage(message, 0);
+	FCEU_DispMessage("%s",0,message);
 }
 
 void FCEUI_MovieDeleteFrame()
@@ -1851,7 +1851,7 @@ void FCEUI_MovieDeleteFrame()
 		strcat(message, GetMovieModeStr());
 	}
 
-	FCEU_DispMessage(message, 0);
+	FCEU_DispMessage("%s",0,message);
 }
 
 void FCEUI_MovieTruncate()
@@ -1889,7 +1889,7 @@ void FCEUI_MovieTruncate()
 		strcat(message, GetMovieModeStr());
 	}
 
-	FCEU_DispMessage(message, 0);
+	FCEU_DispMessage("%s",0,message);
 }
 
 void FCEUI_MovieNextRecordMode()
