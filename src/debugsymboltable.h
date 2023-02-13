@@ -5,6 +5,7 @@
 #include <map>
 
 #include "utils/mutex.h"
+#include "ld65dbg.h"
 
 class debugSymbolPage_t;
 class debugSymbolTable_t;
@@ -152,6 +153,10 @@ class debugSymbolTable_t
 		int updateSymbol( debugSymbol_t *sym );
 
 		const char *errorMessage(void);
+
+		int ld65LoadDebugFile( const char *dbgFilePath );
+
+		void ld65_SymbolLoad( ld65::sym *s );
 
 	private:
 		std::map <int, debugSymbolPage_t*> pageMap;
