@@ -266,7 +266,7 @@ int getBank(int offs)
 	//Anything over FFFFF will kill it.
 
 	//GetNesFileAddress doesn't work well with Unif files
-	int addr = GetNesFileAddress(offs)-16;
+	int addr = GetNesFileAddress(offs)-NES_HEADER_SIZE;
 
 	if (GameInfo && GameInfo->type==GIT_NSF)
 		return addr != -1 ? addr / 0x1000 : -1;
@@ -283,7 +283,7 @@ int GetNesFileAddress(int A){
 	if((A < 0x6000) || (A > 0xFFFF))return -1;
 	result = &Page[A>>11][A]-PRGptr[0];
 	if((result > (int)(PRGsize[0])) || (result < 0))return -1;
-	else return result+16; //16 bytes for the header remember
+	else return result+NES_HEADER_SIZE; //16 bytes for the header remember
 }
 
 int bzk_GetNesFileAddress(int A){
@@ -293,7 +293,7 @@ int bzk_GetNesFileAddress(int A){
 
 int GetRomAddress(int A){
 	int i;
-	uint8 *p = GetNesPRGPointer(A-=16);
+	uint8 *p = GetNesPRGPointer(A-=NES_HEADER_SIZE);
 	for(i = 16;i < 32;i++){
 		if((&Page[i][i<<11] <= p) && (&Page[i][(i+1)<<11] > p))break;
 	}
