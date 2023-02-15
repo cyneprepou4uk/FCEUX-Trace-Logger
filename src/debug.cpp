@@ -293,7 +293,7 @@ int bzk_GetNesFileAddress(int A){
     
     //for 6000-7FFF
     int result = &Page[A >> 11][A] - PRGptr[0];
-    if (result >= romSize) return A + 0x100000; //for SRAM
+    if (result >= NES_HEADER_SIZE + CHRsize[0] + PRGsize[0]) return A + 0x100000; //for SRAM
     else return result; //for PRG RAM
 }
 
