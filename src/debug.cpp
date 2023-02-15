@@ -287,7 +287,7 @@ int GetNesFileAddress(int A){
 }
 
 int bzk_GetNesFileAddress(int A){
-    if (A >= 0x8000) return &Page[A>>11][A]-PRGptr[0]; //for 8000-FFFF
+    if (A >= 0x6000) return &Page[A>>11][A]-PRGptr[0]; //for 8000-FFFF
     return A + 0x100000; //for 0000-7FFF
 }
 
