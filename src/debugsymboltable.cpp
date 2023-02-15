@@ -749,7 +749,7 @@ int debugSymbolTable_t::loadGameSymbols(void)
 
 	if ( GameInfo != nullptr )
 	{
-		romSize = 16 + CHRsize[0] + PRGsize[0];
+		romSize = NES_HEADER_SIZE + CHRsize[0] + PRGsize[0];
 	}
 
 	loadFileNL( -1 );
@@ -934,13 +934,13 @@ void debugSymbolTable_t::ld65_SymbolLoad( ld65::sym *s )
 		//printf("Symbol Label Load: name:\"%s\"  val:%i  0x%x\n", s->name(), s->value(), s->value() );
 		if (seg)
 		{
-			int romAddr = seg->ofs();
+			int romAddr = seg->ofs() - NES_HEADER_SIZE;
 
 			bank =  romAddr >= 0 ? romAddr / (1<<debuggerPageSize) : -1;
 
 			//printf("  Seg: name:'%s'  ofs:%i  Bank:%x\n", seg->name(), romAddr, bank );
 		}
-		printf("\n");
+		//printf("\n");
 
 		auto pageIt = pageMap.find(bank);
 
@@ -968,7 +968,7 @@ void debugSymbolTable_t::ld65_SymbolLoad( ld65::sym *s )
 
 		if ( page->addSymbol( sym ) )
 		{
-			//printf("Failed to load sym: '%s'\n", s->name() );
+			//printf("Failed to load sym: id:%i name:'%s' bank:%i \n", s->id(), s->name(), bank );
 			delete sym;
 		}
 	}
@@ -982,6 +982,7 @@ int debugSymbolTable_t::ld65LoadDebugFile( const char *dbgFilePath )
 	{
 		return -1;
 	}
+	FCEU::autoScopedLock alock(cs);
 
 	db.iterateSymbols( this, ld65_iterate_cb );
 
