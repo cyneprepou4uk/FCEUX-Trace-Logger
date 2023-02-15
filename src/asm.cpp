@@ -727,7 +727,7 @@ char *bzk_Disassemble(int addr, uint8 *opcode) {
             sprintf(str, "%u|%u|%u", bzk_GetNesFileAddress(tmp), bzk_getBank(tmp), GetMem(tmp));
             break;
         
-        //for all other other opcodes, which are immediate and 1-byte instructions
+        //for other opcodes, which are immediate and 1-byte instructions
 		default:
             strcpy(str, "?");
             break;
