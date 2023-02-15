@@ -287,14 +287,13 @@ int GetNesFileAddress(int A){
 }
 
 int bzk_GetNesFileAddress(int A){
-    //romSize = NES_HEADER_SIZE + CHRsize[0] + PRGsize[0]   //debugsymboltable.cpp
-    if (A >= 0x8000) return &Page[A >> 11][A] - PRGptr[0]; //for 8000-FFFF
-    if (A <= 0x5FFF) return A + 0x100000; //for 0000-5FFF
+    if (A >= 0x8000) return &Page[A >> 11][A] - PRGptr[0]; //8000-FFFF
+    if (A <= 0x5FFF) return A + 0x100000; //0000-5FFF
     
-    //for 6000-7FFF
+    //6000-7FFF
     int result = &Page[A >> 11][A] - PRGptr[0];
-    if (result >= NES_HEADER_SIZE + CHRsize[0] + PRGsize[0]) return A + 0x100000; //for SRAM
-    else return result; //for PRG RAM
+    if (result >= NES_HEADER_SIZE + CHRsize[0] + PRGsize[0]) return A + 0x100000; //SRAM
+    else return result; //PRG-RAM
 }
 
 int GetRomAddress(int A){
