@@ -53,6 +53,7 @@
 #include "../../input.h"
 #include "../../movie.h"
 #include "../../wave.h"
+#include "../../state.h"
 #include "../../version.h"
 #include "common/os_utils.h"
 
@@ -78,6 +79,7 @@
 #include "Qt/MoviePlay.h"
 #include "Qt/MovieRecord.h"
 #include "Qt/MovieOptions.h"
+#include "Qt/StateRecorderConf.h"
 #include "Qt/TimingConf.h"
 #include "Qt/FrameTimingStats.h"
 #include "Qt/LuaControl.h"
@@ -920,6 +922,9 @@ void consoleWin_t::initHotKeys(void)
 	connect( Hotkeys[ HK_LOAD_STATE_7         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState7(void))        );
 	connect( Hotkeys[ HK_LOAD_STATE_8         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState8(void))        );
 	connect( Hotkeys[ HK_LOAD_STATE_9         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState9(void))        );
+
+	connect( Hotkeys[ HK_LOAD_PREV_STATE      ].getShortcut(), SIGNAL(activated()), this, SLOT(loadPrevState(void))     );
+	connect( Hotkeys[ HK_LOAD_NEXT_STATE      ].getShortcut(), SIGNAL(activated()), this, SLOT(loadNextState(void))     );
 }
 //---------------------------------------------------------------------------
 void consoleWin_t::createMainMenu(void)
@@ -1213,6 +1218,15 @@ void consoleWin_t::createMainMenu(void)
 	connect(timingConfig, SIGNAL(triggered()), this, SLOT(openTimingConfWin(void)) );
 	
 	optMenu->addAction(timingConfig);
+
+	// Options -> State Recorder Config
+	stateRecordConfig = new QAction(tr("&State Recorder Config"), this);
+	//stateRecordConfig->setShortcut( QKeySequence(tr("Ctrl+C")));
+	stateRecordConfig->setStatusTip(tr("State Recorder Configure"));
+	stateRecordConfig->setIcon( QIcon(":icons/media-record.png") );
+	connect(stateRecordConfig, SIGNAL(triggered()), this, SLOT(openStateRecorderConfWin(void)) );
+	
+	optMenu->addAction(stateRecordConfig);
 
 	// Options -> Movie Options
 	movieConfig = new QAction(tr("&Movie Options"), this);
@@ -2729,6 +2743,20 @@ void consoleWin_t::loadState7(void){ loadState(7); }
 void consoleWin_t::loadState8(void){ loadState(8); }
 void consoleWin_t::loadState9(void){ loadState(9); }
 
+void consoleWin_t::loadPrevState(void)
+{
+	FCEU_WRAPPER_LOCK();
+	FCEU_StateRecorderLoadState( FCEU_StateRecorderGetStateIndex()-1 );
+	FCEU_WRAPPER_UNLOCK();
+}
+
+void consoleWin_t::loadNextState(void)
+{
+	FCEU_WRAPPER_LOCK();
+	FCEU_StateRecorderLoadState( FCEU_StateRecorderGetStateIndex()-1 );
+	FCEU_WRAPPER_UNLOCK();
+}
+
 void consoleWin_t::quickSave(void)
 {
 	FCEU_WRAPPER_LOCK();
@@ -3844,6 +3872,15 @@ void consoleWin_t::toggleForeground(void)
 void consoleWin_t::toggleTurboMode(void)
 {
 	NoWaiting ^= 1;
+}
+
+void consoleWin_t::openStateRecorderConfWin(void)
+{
+	StateRecorderDialog_t *win;
+
+	win = new StateRecorderDialog_t(this);
+
+	win->show();
 }
 
 void consoleWin_t::openMovie(void)

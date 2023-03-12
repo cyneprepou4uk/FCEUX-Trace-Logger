@@ -211,6 +211,7 @@ class  consoleWin_t : public QMainWindow
 		QAction *hotkeyConfig;
 		QAction *paletteConfig;
 		QAction *guiConfig;
+		QAction *stateRecordConfig;
 		QAction *timingConfig;
 		QAction *movieConfig;
 		QAction *autoResume;
@@ -344,6 +345,7 @@ class  consoleWin_t : public QMainWindow
 		void openPaletteConfWin(void);
 		void openGuiConfWin(void);
 		void openTimingConfWin(void);
+		void openStateRecorderConfWin(void);
 		void openPaletteEditorWin(void);
 		void openAviRiffViewer(void);
 		void openTimingStatWin(void);
@@ -439,6 +441,8 @@ class  consoleWin_t : public QMainWindow
 		void loadState7(void);
 		void loadState8(void);
 		void loadState9(void);
+		void loadPrevState(void);
+		void loadNextState(void);
 		void mainMenuOpen(void);
 		void mainMenuClose(void);
 		void warnAmbiguousShortcut( QShortcut*);
