@@ -86,12 +86,20 @@ struct StateRecorderConfigData
 	int   compressionLevel;
 	int   loadPauseTimeSeconds;
 
+	enum PauseType
+	{
+		NO_PAUSE = 0,
+		TEMPORARY_PAUSE,
+		FULL_PAUSE,
+	} pauseOnLoad;
+
 	StateRecorderConfigData(void)
 	{
 		historyDurationMinutes = 15.0f;
 		timeBetweenSnapsMinutes = 3.0f / 60.0f;
 		compressionLevel = 0;
 		loadPauseTimeSeconds = 3;
+		pauseOnLoad = TEMPORARY_PAUSE;
 	}
 };
 
@@ -103,5 +111,7 @@ bool FCEU_StateRecorderIsEnabled(void);
 void FCEU_StateRecorderSetEnabled(bool enabled);
 int FCEU_StateRecorderGetStateIndex(void);
 int FCEU_StateRecorderLoadState(int snapIndex);
+int FCEU_StateRecorderLoadPrevState(void);
+int FCEU_StateRecorderLoadNextState(void);
 int FCEU_StateRecorderSetConfigData(const StateRecorderConfigData &newConfig);
 const StateRecorderConfigData& FCEU_StateRecorderGetConfigData(void);

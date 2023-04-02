@@ -84,9 +84,9 @@ bool backupSavestates = true;
 bool compressSavestates = true;  //By default FCEUX compresses savestates when a movie is inactive.
 
 // a temp memory stream. We'll be dumping some data here and then compress
-EMUFILE_MEMORY memory_savestate;
+static EMUFILE_MEMORY memory_savestate;
 // temporary buffer for compressed data of a savestate
-std::vector<uint8> compressed_buf;
+static std::vector<uint8> compressed_buf;
 
 #define SFMDATA_SIZE (128)
 static SFORMAT SFMDATA[SFMDATA_SIZE];
@@ -1206,6 +1206,7 @@ class StateRecorder
 			loadIndexReset = false;
 			lastLoadFrame = 0;
 			loadPauseTime = 3;
+			pauseOnLoad = StateRecorderConfigData::TEMPORARY_PAUSE;
 		}
 
 		~StateRecorder(void)
@@ -1245,6 +1246,7 @@ class StateRecorder
 
 			compressionLevel = stateRecorderConfig.compressionLevel;
 			loadPauseTime    = stateRecorderConfig.loadPauseTimeSeconds;
+			pauseOnLoad      = stateRecorderConfig.pauseOnLoad;
 		}
 
 		void update(void)
@@ -1313,6 +1315,8 @@ class StateRecorder
 
 			EMUFILE_MEMORY *em = ringBuf[ snapIdx ];
 
+			em->fseek(SEEK_SET, 0);
+
 			FCEUSS_LoadFP( em, SSLOADPARAM_NOBACKUP );
 
 			frameCounter = lastLoadFrame = static_cast<unsigned int>(currFrameCounter);
@@ -1320,12 +1324,53 @@ class StateRecorder
 			lastState = snapIdx;
 			loadIndexReset = true;
 
-			if (loadPauseTime > 0)
-			{	// Temporary pause after loading new state for user to have time to process
-				FCEUI_PauseForDuration(loadPauseTime);
+			if (pauseOnLoad == StateRecorderConfigData::TEMPORARY_PAUSE)
+			{
+				if (loadPauseTime > 0)
+				{	// Temporary pause after loading new state for user to have time to process
+					FCEUI_PauseForDuration(loadPauseTime);
+				}
 			}
-
+			else if (pauseOnLoad == StateRecorderConfigData::FULL_PAUSE)
+			{
+				FCEUI_SetEmulationPaused( EMULATIONPAUSED_PAUSED );
+			}
 			return 0;
+		}
+
+		int loadPrevState(void)
+		{
+			int snapIdx = lastState;
+
+			if ( lastState == ringHead )
+			{	// No States to Load
+				return -1;
+			}
+			if ( lastState != ringStart )
+			{
+				if ( (lastLoadFrame+30) > frameCounter)
+				{
+					snapIdx--;
+
+					if (snapIdx < 0)
+					{
+						snapIdx += ringBufSize;
+					}
+				}
+			}
+			return loadStateByIndex( snapIdx );
+		}
+
+		int loadNextState(void)
+		{
+			int snapIdx =  lastState;
+			int nextIdx = (lastState + 1) % ringBufSize;
+
+			if ( nextIdx != ringHead )
+			{
+				snapIdx = nextIdx;
+			}
+			return loadStateByIndex( snapIdx );
 		}
 
 		int getHeadIndex(void)
@@ -1370,6 +1415,7 @@ class StateRecorder
 		int  ringBufSize;
 		int  compressionLevel;
 		int  loadPauseTime;
+		StateRecorderConfigData::PauseType pauseOnLoad;
 		unsigned int frameCounter;
 		unsigned int framesPerSnap;
 		unsigned int lastLoadFrame;
@@ -1425,16 +1471,40 @@ bool FCEU_StateRecorderRunning(void)
 
 int FCEU_StateRecorderLoadState(int snapIndex)
 {
+	int ret = -1;
+
 	if (stateRecorder != nullptr)
 	{
-		stateRecorder->loadStateByIndex(snapIndex);
+		ret = stateRecorder->loadStateByIndex(snapIndex);
 	}
-	return 0;
+	return ret;
 }
 
 int FCEU_StateRecorderGetStateIndex(void)
 {
 	return StateRecorder::lastState;
+}
+
+int FCEU_StateRecorderLoadPrevState(void)
+{
+	int ret = -1;
+
+	if (stateRecorder != nullptr)
+	{
+		ret = stateRecorder->loadPrevState();
+	}
+	return ret;
+}
+
+int FCEU_StateRecorderLoadNextState(void)
+{
+	int ret = -1;
+
+	if (stateRecorder != nullptr)
+	{
+		ret = stateRecorder->loadNextState();
+	}
+	return ret;
 }
 
 const StateRecorderConfigData& FCEU_StateRecorderGetConfigData(void)
@@ -1444,5 +1514,10 @@ const StateRecorderConfigData& FCEU_StateRecorderGetConfigData(void)
 int FCEU_StateRecorderSetConfigData(const StateRecorderConfigData &newConfig)
 {
 	stateRecorderConfig = newConfig;
+
+	if (stateRecorder != nullptr)
+	{
+		stateRecorder->loadConfig( stateRecorderConfig );
+	}
 	return 0;
 }
