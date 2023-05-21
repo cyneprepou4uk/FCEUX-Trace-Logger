@@ -22,6 +22,12 @@ if ( ${QHELP} )
 	add_definitions( -D_USE_QHELP )
 endif()
 
+if ( ${FCEU_PROFILER_ENABLE} )
+	message( STATUS "FCEU Profiler Enabled")
+	add_definitions( -D__FCEU_PROFILER_ENABLE__ )
+endif()
+	
+
 if ( ${QT6} )
 	find_package( Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets ${QtHelpModule})
   	add_definitions( ${Qt6Widgets_DEFINITIONS} ${Qt6Help_DEFINITIONS} ${Qt6OpenGLWidgets_DEFINITIONS} )
@@ -95,6 +101,12 @@ else(WIN32)
   #	include_directories( ${Qt5Widgets_INCLUDE_DIRS} )
   #endif()
   add_definitions( -D__QT_DRIVER__  -DQT_DEPRECATED_WARNINGS )
+
+  if ( ${GPROF_ENABLE} )
+	add_definitions( -pg )
+	set( GPROF_LDFLAGS  -pg )
+	message( STATUS "GNU Profiling Enabled" )
+  endif()
 
   if ( ${ASAN_ENABLE} )
 	add_definitions( -fsanitize=address -fsanitize=bounds-strict )
@@ -303,6 +315,7 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/nsf.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/oldmovie.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/palette.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/profiler.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/ppu.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/sound.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/state.cpp
@@ -514,6 +527,7 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/utils/md5.cpp  
   	${CMAKE_CURRENT_SOURCE_DIR}/utils/memory.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/utils/mutex.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/utils/timeStamp.cpp
 )
 
 
@@ -536,6 +550,8 @@ set(SRC_DRIVERS_SDL
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleWindow.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleViewerGL.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleViewerSDL.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleViewerQWidget.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleViewerInterface.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/InputConf.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/GamePadConf.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/FamilyKeyboard.cpp  
@@ -646,7 +662,8 @@ add_executable(  ${APP_NAME}  ${SOURCES} ../resources.qrc
 	${CMAKE_CURRENT_BINARY_DIR}/fceux_git_info.cpp)
 endif()
 
-target_link_libraries( ${APP_NAME}  ${ASAN_LDFLAGS}
+target_link_libraries( ${APP_NAME}
+   ${ASAN_LDFLAGS}  ${GPROF_LDFLAGS}
    ${${Qt}Widgets_LIBRARIES}
    ${${Qt}Help_LIBRARIES}
    ${${Qt}OpenGL_LIBRARIES}
