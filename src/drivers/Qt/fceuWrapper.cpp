@@ -42,6 +42,7 @@
 #include "Qt/CheatsConf.h"
 #include "Qt/SymbolicDebug.h"
 #include "Qt/CodeDataLogger.h"
+#include "Qt/QtScriptManager.h"
 #include "Qt/ConsoleDebugger.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
@@ -1477,17 +1478,36 @@ int  fceuWrapperUpdate( void )
  
 	if ( GameInfo )
 	{
+#ifdef __FCEU_QSCRIPT_ENABLE__
+		auto* qscriptMgr = QtScriptManager::getInstance();
+
+		bool scriptsLoaded = (qscriptMgr != nullptr) && (qscriptMgr->numScriptsLoaded() > 0);
+
+		if (scriptsLoaded)
+		{
+			qscriptMgr->frameBeginUpdate();
+		}
+#endif
+
 		DoFun(frameskip, periodic_saves);
 	
+#ifdef __FCEU_QSCRIPT_ENABLE__
+		if (scriptsLoaded)
+		{
+			qscriptMgr->frameFinishedUpdate();
+		}
+#endif
+
 		hexEditorUpdateMemoryValues();
+
+		fceuWrapperUnLock();
+
+		emulatorHasMutex = 0;
 
 		if ( consoleWindow )
 		{
 			consoleWindow->emulatorThread->signalFrameFinished();
 		}
-		fceuWrapperUnLock();
-
-		emulatorHasMutex = 0;
 
 #ifdef __FCEU_PROFILER_ENABLE__
 		FCEU_profiler_log_thread_activity();
