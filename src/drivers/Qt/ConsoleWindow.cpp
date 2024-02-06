@@ -154,6 +154,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	mainMenuEmuWasPaused   = false;
 	mainMenuPauseWhenActv  = false;
 	autoHideMenuFullscreen = false;
+	redrawVideoRequest     = false;
 
 	createMainMenu();
 
@@ -170,11 +171,6 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	setAcceptDrops(true);
 
 	gameTimer  = new QTimer( this );
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
-	mutex      = new QRecursiveMutex();
-#else
-	mutex      = new QMutex( QMutex::Recursive );
-#endif
 	emulatorThread = new emulatorThread_t(this);
 
 	connect(emulatorThread, &QThread::finished, emulatorThread, &QObject::deleteLater);
@@ -336,8 +332,6 @@ consoleWin_t::~consoleWin_t(void)
 
 	unloadVideoDriver();
 
-	delete mutex;
-
 	// LoadGame() checks for an IP and if it finds one begins a network session
 	// clear the NetworkIP field so this doesn't happen unintentionally
 	//g_config->setOption ("SDL.NetworkIP", "");
@@ -419,7 +413,7 @@ void consoleWin_t::winScreenChanged(QScreen *scr)
 		return;
 	}
 	refreshRate = scr->refreshRate();
-	//printf("Screen Refresh Rate: %f\n", scr->refreshRate() );
+	printf("Screen Refresh Rate: %f\n", scr->refreshRate() );
 
 	//printf("Screen Changed: %p\n", scr );
 	if ( viewport_GL != NULL )
@@ -4562,24 +4556,35 @@ int consoleWin_t::getPeriodicInterval(void)
 	return gameTimer->interval();
 }
 
-void consoleWin_t::transferVideoBuffer(void)
+void consoleWin_t::transferVideoBuffer(bool allowRedraw)
 {
 	FCEU_PROFILE_FUNC(prof, "VideoXfer");
-	if ( nes_shm->blitUpdated )
-	{
-		nes_shm->blitUpdated = 0;
 
-		if (viewport_Interface)
+	{
+		FCEU::autoScopedLock lock(videoBufferMutex);
+		if ( nes_shm->blitUpdated )
 		{
-			viewport_Interface->transfer2LocalBuffer();
-			viewport_Interface->queueRedraw();
+			nes_shm->blitUpdated = 0;
+
+			if (viewport_Interface != nullptr)
+			{
+				viewport_Interface->transfer2LocalBuffer();
+				redrawVideoRequest = true;
+			}
 		}
+	}
+
+	// Don't queue redraw in mutex lock scope
+	if (allowRedraw && redrawVideoRequest && (viewport_Interface != nullptr))
+	{
+		viewport_Interface->queueRedraw();
+		redrawVideoRequest = false;
 	}
 }
 
 void consoleWin_t::emuFrameFinish(void)
 {
-	static bool eventProcessingInProg = false;
+	//static bool eventProcessingInProg = false;
 
 	guiSignalRecvMark();
 
@@ -4588,16 +4593,16 @@ void consoleWin_t::emuFrameFinish(void)
 	//	return;
 	//}
 	// Prevent recursion as processEvents function can double back on us
-	if ( !eventProcessingInProg )
-	{
-		eventProcessingInProg = true;
-		// Process all events before attempting to render viewport
-		QCoreApplication::processEvents();
-		eventProcessingInProg = false;
-	}
+	//if ( !eventProcessingInProg )
+	//{
+	//	eventProcessingInProg = true;
+	//	// Process all events before attempting to render viewport
+	//	QCoreApplication::processEvents();
+	//	eventProcessingInProg = false;
+	//}
 
 	// Update Input Devices
-	FCEUD_UpdateInput();
+	//FCEUD_UpdateInput();
 	
 	//printf("EMU Frame Finish\n");
 
@@ -4605,7 +4610,7 @@ void consoleWin_t::emuFrameFinish(void)
 //	QtScriptManager::getInstance()->frameFinishedUpdate();
 //#endif
 
-	transferVideoBuffer();
+	transferVideoBuffer(false);
 }
 
 void consoleWin_t::updatePeriodic(void)
@@ -4630,7 +4635,7 @@ void consoleWin_t::updatePeriodic(void)
 	FCEUD_UpdateInput();
 	
 	// RePaint Game Viewport
-	transferVideoBuffer();
+	transferVideoBuffer(true);
 
 	// Low Rate Updates
 	if ( (updateCounter % 30) == 0 )

@@ -27,6 +27,7 @@
 #include <QRecursiveMutex>
 #endif
 
+#include "utils/mutex.h"
 #include "Qt/ColorMenu.h"
 #include "Qt/ConsoleViewerGL.h"
 #include "Qt/ConsoleViewerSDL.h"
@@ -134,11 +135,8 @@ class  consoleWin_t : public QMainWindow
 
 		void setCyclePeriodms( int ms );
 
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
-		QRecursiveMutex *mutex;
-#else
-		QMutex *mutex;
-#endif
+		FCEU::mutex emulatorMutex;
+		FCEU::mutex videoBufferMutex;
 
 		int  videoInit(void);
 		void videoReset(void);
@@ -280,6 +278,7 @@ class  consoleWin_t : public QMainWindow
 		bool        contextMenuEnable;
 		bool        soundUseGlobalFocus;
 		bool        autoHideMenuFullscreen;
+		bool        redrawVideoRequest;
 
 		std::list <std::string*> romList;
 		std::vector <autoFireMenuAction*> afActList;
@@ -315,7 +314,7 @@ class  consoleWin_t : public QMainWindow
 		void changeState(int slot);
 		void saveState(int slot);
 		void loadState(int slot);
-		void transferVideoBuffer(void);
+		void transferVideoBuffer(bool allowRedraw);
 		void syncAutoFirePatternMenu(void);
 
 		std::string findHelpFile(void);

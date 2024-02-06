@@ -1382,7 +1382,7 @@ void fceuWrapperLock(void)
 	mutexPending++;
 	if ( consoleWindow != NULL )
 	{
-		consoleWindow->mutex->lock();
+		consoleWindow->emulatorMutex.lock();
 	}
 	mutexPending--;
 	mutexLocks++;
@@ -1412,7 +1412,7 @@ bool fceuWrapperTryLock(int timeout)
 	mutexPending++;
 	if ( consoleWindow != NULL )
 	{
-		lockAcq = consoleWindow->mutex->tryLock( timeout );
+		lockAcq = consoleWindow->emulatorMutex.tryLock( timeout );
 	}
 	mutexPending--;
 
@@ -1430,7 +1430,7 @@ void fceuWrapperUnLock(void)
 		mutexLocks--;
 		if ( consoleWindow != NULL )
 		{
-			consoleWindow->mutex->unlock();
+			consoleWindow->emulatorMutex.unlock();
 		}
 	}
 	else
@@ -1980,10 +1980,6 @@ FCEUFILE* FCEUD_OpenArchiveIndex(ArchiveScanRecord& asr, std::string &fname, int
     }
 DUMMY(FCEUD_HideMenuToggle)
 DUMMY(FCEUD_MovieReplayFrom)
-//DUMMY(FCEUD_AviRecordTo)
-//DUMMY(FCEUD_AviStop)
-//void FCEUI_AviVideoUpdate(const unsigned char* buffer) { }
-//bool FCEUI_AviIsRecording(void) {return false;}
 void FCEUI_UseInputPreset(int preset) { }
 bool FCEUD_PauseAfterPlayback() { return pauseAfterPlayback; }
 

@@ -41,10 +41,13 @@
 
 #include "../../fceu.h"
 #include "../../movie.h"
+#include "../../video.h"
 #include "../../x6502.h"
 #include "../../debug.h"
+#include "../../ppu.h"
 
 #include "common/os_utils.h"
+#include "utils/xstring.h"
 
 #include "Qt/QtScriptManager.h"
 #include "Qt/main.h"
@@ -55,6 +58,38 @@
 #include "Qt/ConsoleUtilities.h"
 #include "Qt/ConsoleWindow.h"
 
+// pix format for JS graphics
+#define BUILD_PIXEL_ARGB8888(A,R,G,B) (((int) (A) << 24) | ((int) (R) << 16) | ((int) (G) << 8) | (int) (B))
+#define DECOMPOSE_PIXEL_ARGB8888(PIX,A,R,G,B) { (A) = ((PIX) >> 24) & 0xff; (R) = ((PIX) >> 16) & 0xff; (G) = ((PIX) >> 8) & 0xff; (B) = (PIX) & 0xff; }
+#define JS_BUILD_PIXEL BUILD_PIXEL_ARGB8888
+#define JS_DECOMPOSE_PIXEL DECOMPOSE_PIXEL_ARGB8888
+#define JS_PIXEL_A(PIX) (((PIX) >> 24) & 0xff)
+#define JS_PIXEL_R(PIX) (((PIX) >> 16) & 0xff)
+#define JS_PIXEL_G(PIX) (((PIX) >> 8) & 0xff)
+#define JS_PIXEL_B(PIX) ((PIX) & 0xff)
+
+// File Base Name from Core
+extern char FileBase[];
+
+namespace JS
+{
+//----------------------------------------------------
+//----  Color Object
+//----------------------------------------------------
+int ColorScriptObject::numInstances = 0;
+
+ColorScriptObject::ColorScriptObject(int r, int g, int b)
+	: QObject(), color(r, g, b), _palette(0)
+{
+	numInstances++;
+	//printf("ColorScriptObject(r,g,b) %p Constructor: %i\n", this, numInstances);
+}
+//----------------------------------------------------
+ColorScriptObject::~ColorScriptObject()
+{
+	numInstances--;
+	//printf("ColorScriptObject %p Destructor: %i\n", this, numInstances);
+}
 //----------------------------------------------------
 //----  EMU Script Object
 //----------------------------------------------------
@@ -101,12 +136,17 @@ bool EmuScriptObject::paused()
 	return FCEUI_EmulationPaused() != 0;
 }
 //----------------------------------------------------
-int EmuScriptObject::framecount()
+void EmuScriptObject::frameAdvance()
+{
+	script->frameAdvance();
+}
+//----------------------------------------------------
+int EmuScriptObject::frameCount()
 {
 	return FCEUMOV_GetFrame();
 }
 //----------------------------------------------------
-int EmuScriptObject::lagcount()
+int EmuScriptObject::lagCount()
 {
 	return FCEUI_GetLagCount();
 }
@@ -116,7 +156,7 @@ bool EmuScriptObject::lagged()
 	return FCEUI_GetLagged();
 }
 //----------------------------------------------------
-void EmuScriptObject::setlagflag(bool flag)
+void EmuScriptObject::setLagFlag(bool flag)
 {
 	FCEUI_SetLagFlag(flag);
 }
@@ -124,6 +164,26 @@ void EmuScriptObject::setlagflag(bool flag)
 bool EmuScriptObject::emulating()
 {
 	return (GameInfo != nullptr);
+}
+//----------------------------------------------------
+bool EmuScriptObject::isReadOnly()
+{
+	return FCEUI_GetMovieToggleReadOnly();
+}
+//----------------------------------------------------
+void EmuScriptObject::setReadOnly(bool flag)
+{
+	FCEUI_SetMovieToggleReadOnly(flag);
+}
+//----------------------------------------------------
+void EmuScriptObject::setRenderPlanes(bool sprites, bool background)
+{
+	FCEUI_SetRenderPlanes(sprites, background);
+}
+//----------------------------------------------------
+void EmuScriptObject::exit()
+{
+	fceuWrapperRequestAppExit();
 }
 //----------------------------------------------------
 void EmuScriptObject::message(const QString& msg)
@@ -170,14 +230,93 @@ void EmuScriptObject::speedMode(const QString& mode)
 	FCEUD_SetEmulationSpeed(speed);
 }
 //----------------------------------------------------
-void EmuScriptObject::registerBefore(const QJSValue& func)
+bool EmuScriptObject::addGameGenie(const QString& code)
 {
-	script->registerBefore(func);
+	// Add a Game Genie code if it hasn't already been added
+	int GGaddr, GGcomp, GGval;
+	int i=0;
+
+	uint32 Caddr;
+	uint8 Cval;
+	int Ccompare, Ctype;
+
+	if (!FCEUI_DecodeGG(code.toLocal8Bit().data(), &GGaddr, &GGval, &GGcomp))
+	{
+		print("Failed to decode game genie code");
+		return false;
+	}
+
+	while (FCEUI_GetCheat(i,NULL,&Caddr,&Cval,&Ccompare,NULL,&Ctype))
+	{
+		if ((static_cast<uint32>(GGaddr) == Caddr) && (GGval == static_cast<int>(Cval)) && (GGcomp == Ccompare) && (Ctype == 1))
+		{
+			// Already Added, so consider it a success
+			return true;
+		}
+		i = i + 1;
+	}
+
+	if (FCEUI_AddCheat(code.toLocal8Bit().data(),GGaddr,GGval,GGcomp,1))
+	{
+		// Code was added
+		// Can't manage the display update the way I want, so I won't bother with it
+		// UpdateCheatsAdded();
+		return true;
+	}
+	else
+	{
+		// Code didn't get added
+	}
+	return false;
 }
 //----------------------------------------------------
-void EmuScriptObject::registerAfter(const QJSValue& func)
+bool EmuScriptObject::delGameGenie(const QString& code)
 {
-	script->registerAfter(func);
+	// Remove a Game Genie code. Very restrictive about deleted code.
+	int GGaddr, GGcomp, GGval;
+	uint32 i=0;
+
+	std::string Cname;
+	uint32 Caddr;
+	uint8 Cval;
+	int Ccompare, Ctype;
+
+	if (!FCEUI_DecodeGG(code.toLocal8Bit().data(), &GGaddr, &GGval, &GGcomp))
+	{
+		print("Failed to decode game genie code");
+		return false;
+	}
+
+	while (FCEUI_GetCheat(i,&Cname,&Caddr,&Cval,&Ccompare,NULL,&Ctype))
+	{
+		QString name = QString::fromStdString(Cname);
+
+		if ((code == name) && (static_cast<uint32>(GGaddr) == Caddr) && (GGval == static_cast<int>(Cval)) && (GGcomp == Ccompare) && (Ctype == 1))
+		{
+			// Delete cheat code
+			if (FCEUI_DelCheat(i))
+			{
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+		i = i + 1;
+	}
+	// Cheat didn't exist, so it's not an error
+	return true;
+}
+//----------------------------------------------------
+void EmuScriptObject::registerBeforeFrame(const QJSValue& func)
+{
+	script->registerBeforeEmuFrame(func);
+}
+//----------------------------------------------------
+void EmuScriptObject::registerAfterFrame(const QJSValue& func)
+{
+	script->registerAfterEmuFrame(func);
 }
 //----------------------------------------------------
 void EmuScriptObject::registerStop(const QJSValue& func)
@@ -196,12 +335,270 @@ bool EmuScriptObject::loadRom(const QString& romPath)
 	return ret != 0;
 }
 //----------------------------------------------------
+bool EmuScriptObject::onEmulationThread()
+{
+	bool isEmuThread = (consoleWindow != nullptr) && 
+		(QThread::currentThread() == consoleWindow->emulatorThread);
+	return isEmuThread;
+}
+//----------------------------------------------------
 QString EmuScriptObject::getDir()
 {
 	return QString(fceuExecutablePath());
 }
 //----------------------------------------------------
+QJSValue EmuScriptObject::getScreenPixel(int x, int y, bool useBackup)
+{
+	int r,g,b,p;
+	uint32_t pixel = GetScreenPixel(x,y,useBackup);
+	r = JS_PIXEL_R(pixel);
+	g = JS_PIXEL_G(pixel);
+	b = JS_PIXEL_B(pixel);
+
+	p = GetScreenPixelPalette(x,y,useBackup);
+
+	ColorScriptObject* pixelObj = new ColorScriptObject(r, g, b);
+
+	pixelObj->setPalette(p);
+
+	pixelObj->moveToThread(QApplication::instance()->thread());
+
+	QJSValue jsVal = engine->newQObject(pixelObj);
+
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+	QJSEngine::setObjectOwnership( pixelObj, QJSEngine::JavaScriptOwnership);
+#endif
+
+	return jsVal;
+}
+//----------------------------------------------------
+//----  ROM Script Object
+//----------------------------------------------------
+//----------------------------------------------------
+RomScriptObject::RomScriptObject(QObject* parent)
+	: QObject(parent)
+{
+	script = qobject_cast<QtScriptInstance*>(parent);
+}
+//----------------------------------------------------
+RomScriptObject::~RomScriptObject()
+{
+}
+//----------------------------------------------------
+bool RomScriptObject::isLoaded()
+{
+	return (GameInfo != nullptr);
+}
+//----------------------------------------------------
+QString RomScriptObject::getFileName()
+{
+	QString baseName;
+
+	if (GameInfo != nullptr)
+	{
+		baseName = FileBase;
+	}
+	return baseName;
+}
+//----------------------------------------------------
+QString RomScriptObject::getHash(const QString& type)
+{
+	QString hash;
+
+	if (GameInfo != nullptr)
+	{
+		MD5DATA md5hash = GameInfo->MD5;
+
+		if (type.compare("md5", Qt::CaseInsensitive) == 0)
+		{
+			hash = md5_asciistr(md5hash);
+		}
+		else if (type.compare("base64", Qt::CaseInsensitive) == 0)
+		{
+			hash = BytesToString(md5hash.data, MD5DATA::size).c_str();
+		}
+	}
+	return hash;
+}
+//----------------------------------------------------
+uint8_t RomScriptObject::readByte(int address)
+{
+	return FCEU_ReadRomByte(address);
+}
+//----------------------------------------------------
+uint8_t RomScriptObject::readByteUnsigned(int address)
+{
+	return FCEU_ReadRomByte(address);
+}
+//----------------------------------------------------
+int8_t RomScriptObject::readByteSigned(int address)
+{
+	return static_cast<int8_t>(FCEU_ReadRomByte(address));
+}
+//----------------------------------------------------
+QJSValue RomScriptObject::readByteRange(int start, int end)
+{
+	QJSValue array;
+	int size = end - start + 1;
+
+	if (size > 0)
+	{
+		array = engine->newArray(size);
+
+		for (int i=0; i<size; i++)
+		{
+			int byte = FCEU_ReadRomByte(start + i);
+
+			QJSValue element = byte;
+
+			array.setProperty(i, element);
+		}
+	}
+	return array;
+}
+//----------------------------------------------------
+void RomScriptObject::writeByte(int address, int value)
+{
+	if (address < 16)
+	{
+		script->print("rom.writebyte() can't edit the ROM header.");
+	}
+	else
+	{
+		FCEU_WriteRomByte(address, value);
+	}
+}
+//----------------------------------------------------
+//----  PPU Script Object
+//----------------------------------------------------
+//----------------------------------------------------
+PpuScriptObject::PpuScriptObject(QObject* parent)
+	: QObject(parent)
+{
+	script = qobject_cast<QtScriptInstance*>(parent);
+}
+//----------------------------------------------------
+PpuScriptObject::~PpuScriptObject()
+{
+}
+//----------------------------------------------------
+uint8_t PpuScriptObject::readByte(int address)
+{
+	uint8_t byte = 0;
+	if (FFCEUX_PPURead != nullptr)
+	{
+		byte = FFCEUX_PPURead(address);
+	}
+	return byte;
+}
+//----------------------------------------------------
+uint8_t PpuScriptObject::readByteUnsigned(int address)
+{
+	uint8_t byte = 0;
+	if (FFCEUX_PPURead != nullptr)
+	{
+		byte = FFCEUX_PPURead(address);
+	}
+	return byte;
+}
+//----------------------------------------------------
+int8_t PpuScriptObject::readByteSigned(int address)
+{
+	int8_t byte = 0;
+	if (FFCEUX_PPURead != nullptr)
+	{
+		byte = static_cast<int8_t>(FFCEUX_PPURead(address));
+	}
+	return byte;
+}
+//----------------------------------------------------
+QJSValue PpuScriptObject::readByteRange(int start, int end)
+{
+	QJSValue array;
+	int size = end - start + 1;
+
+	if (FFCEUX_PPURead == nullptr)
+	{
+		return array;
+	}
+
+	if (size > 0)
+	{
+		array = engine->newArray(size);
+
+		for (int i=0; i<size; i++)
+		{
+			int byte = FFCEUX_PPURead(start + i);
+
+			QJSValue element = byte;
+
+			array.setProperty(i, element);
+		}
+	}
+	return array;
+}
+//----------------------------------------------------
+void PpuScriptObject::writeByte(int address, int value)
+{
+	if (FFCEUX_PPUWrite != nullptr)
+	{
+		FFCEUX_PPUWrite(address, value);
+	}
+}
+//----------------------------------------------------
 //----  Memory Script Object
+//----------------------------------------------------
+//----------------------------------------------------
+static void addressReadCallback(unsigned int address, unsigned int value, void *userData)
+{
+	MemoryScriptObject* mem = static_cast<MemoryScriptObject*>(userData);
+
+	if (mem != nullptr)
+	{
+		QJSValue* func = mem->getReadFunc(address);
+
+		if (func != nullptr)
+		{
+			QJSValueList args = { address, value };
+
+			mem->getScript()->runFunc( *func, args);
+		}
+	}
+}
+//----------------------------------------------------
+static void addressWriteCallback(unsigned int address, unsigned int value, void *userData)
+{
+	MemoryScriptObject* mem = static_cast<MemoryScriptObject*>(userData);
+
+	if (mem != nullptr)
+	{
+		QJSValue* func = mem->getWriteFunc(address);
+
+		if (func != nullptr)
+		{
+			QJSValueList args = { address, value };
+
+			mem->getScript()->runFunc( *func, args);
+		}
+	}
+}
+//----------------------------------------------------
+static void addressExecCallback(unsigned int address, unsigned int value, void *userData)
+{
+	MemoryScriptObject* mem = static_cast<MemoryScriptObject*>(userData);
+
+	if (mem != nullptr)
+	{
+		QJSValue* func = mem->getExecFunc(address);
+
+		if (func != nullptr)
+		{
+			QJSValueList args = { address, value };
+
+			mem->getScript()->runFunc( *func, args);
+		}
+	}
+}
 //----------------------------------------------------
 MemoryScriptObject::MemoryScriptObject(QObject* parent)
 	: QObject(parent)
@@ -211,6 +608,12 @@ MemoryScriptObject::MemoryScriptObject(QObject* parent)
 //----------------------------------------------------
 MemoryScriptObject::~MemoryScriptObject()
 {
+	unregisterAll();
+}
+//----------------------------------------------------
+void MemoryScriptObject::reset()
+{
+	unregisterAll();
 }
 //----------------------------------------------------
 uint8_t MemoryScriptObject::readByte(int address)
@@ -332,6 +735,208 @@ void MemoryScriptObject::setRegisterP(uint8_t v)
 	X.P = v;
 }
 //----------------------------------------------------
+void MemoryScriptObject::registerCallback(int type, const QJSValue& func, int address, int size)
+{
+	int n=0;
+	int *numFuncsRegistered = nullptr;
+	QJSValue** funcArray = nullptr;
+
+	switch (type)
+	{
+		default:
+		case X6502_MemHook::Read:
+			funcArray = readFunc;
+			numFuncsRegistered = &numReadFuncsRegistered;
+			X6502_MemHook::Add(X6502_MemHook::Read, addressReadCallback, this);
+		break;
+		case X6502_MemHook::Write:
+			funcArray = writeFunc;
+			numFuncsRegistered = &numWriteFuncsRegistered;
+			X6502_MemHook::Add(X6502_MemHook::Write, addressWriteCallback, this);
+		break;
+		case X6502_MemHook::Exec:
+			funcArray = execFunc;
+			numFuncsRegistered = &numExecFuncsRegistered;
+			X6502_MemHook::Add(X6502_MemHook::Exec, addressExecCallback, this);
+		break;
+	}
+	n = *numFuncsRegistered;
+
+	if (func.isCallable())
+	{
+		for (int i=0; i<size; i++)
+		{
+			int addr = address + i;
+
+			if ( (addr >= 0) && (addr < AddressRange) )
+			{
+				if (funcArray[addr] != nullptr)
+				{
+					n--;
+					delete funcArray[addr];
+				}
+				funcArray[addr] = new QJSValue(func);
+				n++;
+			}
+		}
+	}
+	else
+	{
+		for (int i=0; i<size; i++)
+		{
+			int addr = address + i;
+
+			if ( (addr >= 0) && (addr < AddressRange) )
+			{
+				if (funcArray[addr] != nullptr)
+				{
+					n--;
+					delete funcArray[addr];
+				}
+				funcArray[addr] = nullptr;
+			}
+		}
+	}
+	*numFuncsRegistered = n;
+}
+//----------------------------------------------------
+void MemoryScriptObject::registerRead(const QJSValue& func, int address, int size)
+{
+	registerCallback(X6502_MemHook::Read, func, address, size);
+}
+//----------------------------------------------------
+void MemoryScriptObject::registerWrite(const QJSValue& func, int address, int size)
+{
+	registerCallback(X6502_MemHook::Write, func, address, size);
+}
+//----------------------------------------------------
+void MemoryScriptObject::registerExec(const QJSValue& func, int address, int size)
+{
+	registerCallback(X6502_MemHook::Exec, func, address, size);
+}
+//----------------------------------------------------
+void MemoryScriptObject::unregisterCallback(int type, const QJSValue& func, int address, int size)
+{
+	int n=0;
+	int *numFuncsRegistered = nullptr;
+	QJSValue** funcArray = nullptr;
+
+	switch (type)
+	{
+		default:
+		case X6502_MemHook::Read:
+			funcArray = readFunc;
+			numFuncsRegistered = &numReadFuncsRegistered;
+		break;
+		case X6502_MemHook::Write:
+			funcArray = writeFunc;
+			numFuncsRegistered = &numWriteFuncsRegistered;
+		break;
+		case X6502_MemHook::Exec:
+			funcArray = execFunc;
+			numFuncsRegistered = &numExecFuncsRegistered;
+		break;
+	}
+	n = *numFuncsRegistered;
+
+	if (func.isCallable())
+	{
+		for (int i=0; i<size; i++)
+		{
+			int addr = address + i;
+
+			if ( (addr >= 0) && (addr < AddressRange) )
+			{
+				if (funcArray[addr] != nullptr)
+				{
+					n--;
+					delete funcArray[addr];
+				}
+				funcArray[addr] = nullptr;
+			}
+		}
+	}
+	else
+	{
+		for (int i=0; i<size; i++)
+		{
+			int addr = address + i;
+
+			if ( (addr >= 0) && (addr < AddressRange) )
+			{
+				if (funcArray[addr] != nullptr)
+				{
+					n--;
+					delete funcArray[addr];
+				}
+				funcArray[addr] = nullptr;
+			}
+		}
+	}
+	*numFuncsRegistered = n;
+
+	if (0 <= numReadFuncsRegistered)
+	{
+		X6502_MemHook::Remove(X6502_MemHook::Read, addressReadCallback, this);
+	}
+	if (0 <= numWriteFuncsRegistered)
+	{
+		X6502_MemHook::Remove(X6502_MemHook::Write, addressWriteCallback, this);
+	}
+	if (0 <= numExecFuncsRegistered)
+	{
+		X6502_MemHook::Remove(X6502_MemHook::Exec, addressExecCallback, this);
+	}
+}
+//----------------------------------------------------
+void MemoryScriptObject::unregisterRead(const QJSValue& func, int address, int size)
+{
+	unregisterCallback(X6502_MemHook::Read, func, address, size);
+}
+//----------------------------------------------------
+void MemoryScriptObject::unregisterWrite(const QJSValue& func, int address, int size)
+{
+	unregisterCallback(X6502_MemHook::Write, func, address, size);
+}
+//----------------------------------------------------
+void MemoryScriptObject::unregisterExec(const QJSValue& func, int address, int size)
+{
+	unregisterCallback(X6502_MemHook::Exec, func, address, size);
+}
+//----------------------------------------------------
+void MemoryScriptObject::unregisterAll()
+{
+	X6502_MemHook::Remove(X6502_MemHook::Read, addressReadCallback, this);
+	X6502_MemHook::Remove(X6502_MemHook::Write, addressWriteCallback, this);
+	X6502_MemHook::Remove(X6502_MemHook::Exec, addressExecCallback, this);
+
+	for (int i=0; i<AddressRange; i++)
+	{
+		if (execFunc[i] != nullptr)
+		{
+			numExecFuncsRegistered--;
+			delete execFunc[i];
+		}
+		if (readFunc[i] != nullptr)
+		{
+			numReadFuncsRegistered--;
+			delete readFunc[i];
+		}
+		if (writeFunc[i] != nullptr)
+		{
+			numWriteFuncsRegistered--;
+			delete writeFunc[i];
+		}
+		execFunc[i] = nullptr;
+		readFunc[i] = nullptr;
+		writeFunc[i] = nullptr;
+	}
+	numReadFuncsRegistered = 0;
+	numWriteFuncsRegistered = 0;
+	numExecFuncsRegistered = 0;
+}
+} // JS
+//----------------------------------------------------
 //----  Qt Script Instance
 //----------------------------------------------------
 QtScriptInstance::QtScriptInstance(QObject* parent)
@@ -339,47 +944,79 @@ QtScriptInstance::QtScriptInstance(QObject* parent)
 {
 	QScriptDialog_t* win = qobject_cast<QScriptDialog_t*>(parent);
 
-	emu = new EmuScriptObject(this);
-	mem = new MemoryScriptObject(this);
-
 	if (win != nullptr)
 	{
 		dialog = win;
-		emu->setDialog(dialog);
-		mem->setDialog(dialog);
 	}
-	engine = new QJSEngine(nullptr);
 
-	emu->setEngine(engine);
-	mem->setEngine(engine);
-
-	configEngine();
+	initEngine();
 
 	QtScriptManager::getInstance()->addScriptInstance(this);
 }
 //----------------------------------------------------
 QtScriptInstance::~QtScriptInstance()
 {
-	if (engine != nullptr)
-	{
-		engine->deleteLater();
-		engine = nullptr;
-	}
 	QtScriptManager::getInstance()->removeScriptInstance(this);
+
+	shutdownEngine();
 
 	//printf("QtScriptInstance Destroyed\n");
 }
 //----------------------------------------------------
-void QtScriptInstance::resetEngine()
+void QtScriptInstance::shutdownEngine()
 {
 	running = false;
 
+	if (onFrameBeginCallback != nullptr)
+	{
+		delete onFrameBeginCallback;
+		onFrameBeginCallback = nullptr;
+	}
+	if (onFrameFinishCallback != nullptr)
+	{
+		delete onFrameFinishCallback;
+		onFrameFinishCallback = nullptr;
+	}
+	if (onScriptStopCallback != nullptr)
+	{
+		delete onScriptStopCallback;
+		onScriptStopCallback = nullptr;
+	}
+	if (onGuiUpdateCallback != nullptr)
+	{
+		delete onGuiUpdateCallback;
+		onGuiUpdateCallback = nullptr;
+	}
+
 	if (engine != nullptr)
 	{
-		engine->deleteLater();
+		engine->collectGarbage();
+		//engine->deleteLater();
+		delete engine;
 		engine = nullptr;
 	}
-	engine = new QJSEngine(nullptr);
+
+	if (emu != nullptr)
+	{
+		delete emu;
+		emu = nullptr;
+	}
+	if (rom != nullptr)
+	{
+		delete rom;
+		rom = nullptr;
+	}
+	if (ppu != nullptr)
+	{
+		delete ppu;
+		ppu = nullptr;
+	}
+	if (mem != nullptr)
+	{
+		mem->reset();
+		delete mem;
+		mem = nullptr;
+	}
 
 	if (ui_rootWidget != nullptr)
 	{
@@ -387,29 +1024,61 @@ void QtScriptInstance::resetEngine()
 		ui_rootWidget->deleteLater();
 		ui_rootWidget = nullptr;
 	}
-
-	configEngine();
 }
 //----------------------------------------------------
-int QtScriptInstance::configEngine()
+void QtScriptInstance::resetEngine()
 {
+	shutdownEngine();
+	initEngine();
+}
+//----------------------------------------------------
+int QtScriptInstance::initEngine()
+{
+	engine = new QJSEngine(this);
+
+	emu = new JS::EmuScriptObject(this);
+	rom = new JS::RomScriptObject(this);
+	ppu = new JS::PpuScriptObject(this);
+	mem = new JS::MemoryScriptObject(this);
+
+	emu->setDialog(dialog);
+	rom->setDialog(dialog);
+	mem->setDialog(dialog);
+
 	engine->installExtensions(QJSEngine::ConsoleExtension);
 
+	emu->setEngine(engine);
+	rom->setEngine(engine);
+	mem->setEngine(engine);
+
+	// emu
 	QJSValue emuObject = engine->newQObject(emu);
 
 	engine->globalObject().setProperty("emu", emuObject);
 
+	// rom
+	QJSValue romObject = engine->newQObject(rom);
+
+	engine->globalObject().setProperty("rom", romObject);
+
+	// ppu
+	QJSValue ppuObject = engine->newQObject(ppu);
+
+	engine->globalObject().setProperty("ppu", ppuObject);
+
+	// memory
 	QJSValue memObject = engine->newQObject(mem);
 
 	engine->globalObject().setProperty("memory", memObject);
 
+	// gui
 	QJSValue guiObject = engine->newQObject(this);
 
 	engine->globalObject().setProperty("gui", guiObject);
 
-	onFrameBeginCallback = QJSValue();
-	onFrameFinishCallback = QJSValue();
-	onScriptStopCallback = QJSValue();
+	// Class Type Definitions for Script Use
+	QJSValue jsMetaObject = engine->newQMetaObject(&JS::ColorScriptObject::staticMetaObject);
+	engine->globalObject().setProperty("Color", jsMetaObject);
 
 	return 0;
 }
@@ -434,7 +1103,10 @@ int QtScriptInstance::loadScriptFile( QString filepath )
 
 	if (evalResult.isError())
 	{
-		print(evalResult.toString());
+		QString msg;
+		msg += evalResult.property("lineNumber").toString() + ": ";
+		msg += evalResult.toString();
+		print(msg);
 		return -1;
 	}
 	else
@@ -442,9 +1114,6 @@ int QtScriptInstance::loadScriptFile( QString filepath )
 		running = true;
 		//printf("Script Evaluation Success!\n");
 	}
-	//onFrameBeginCallback = engine->globalObject().property("onFrameBegin");
-	//onFrameFinishCallback = engine->globalObject().property("onFrameFinish");
-	//onScriptStopCallback = engine->globalObject().property("onScriptStop");
 
 	return 0;
 }
@@ -459,7 +1128,7 @@ void QtScriptInstance::loadObjectChildren(QJSValue& jsObject, QObject* obj)
 
 		if (!name.isEmpty())
 		{
-			printf("Object: %s.%s\n", obj->objectName().toStdString().c_str(), child->objectName().toStdString().c_str());
+			//printf("Object: %s.%s\n", obj->objectName().toStdString().c_str(), child->objectName().toStdString().c_str());
 
 			QJSValue newJsObj = engine->newQObject(child);
 
@@ -495,19 +1164,45 @@ void QtScriptInstance::loadUI(const QString& uiFilePath)
 #endif
 }
 //----------------------------------------------------
-void QtScriptInstance::registerBefore(const QJSValue& func)
+void QtScriptInstance::frameAdvance()
 {
-	onFrameBeginCallback = func;
+	frameAdvanceCount++;
 }
 //----------------------------------------------------
-void QtScriptInstance::registerAfter(const QJSValue& func)
+void QtScriptInstance::registerBeforeEmuFrame(const QJSValue& func)
 {
-	onFrameFinishCallback = func;
+	if (onFrameBeginCallback != nullptr)
+	{
+		delete onFrameBeginCallback;
+	}
+	onFrameBeginCallback = new QJSValue(func);
+}
+//----------------------------------------------------
+void QtScriptInstance::registerAfterEmuFrame(const QJSValue& func)
+{
+	if (onFrameFinishCallback != nullptr)
+	{
+		delete onFrameFinishCallback;
+	}
+	onFrameFinishCallback = new QJSValue(func);
 }
 //----------------------------------------------------
 void QtScriptInstance::registerStop(const QJSValue& func)
 {
-	onScriptStopCallback = func;
+	if (onScriptStopCallback != nullptr)
+	{
+		delete onScriptStopCallback;
+	}
+	onScriptStopCallback = new QJSValue(func);
+}
+//----------------------------------------------------
+void QtScriptInstance::registerGuiUpdate(const QJSValue& func)
+{
+	if (onGuiUpdateCallback != nullptr)
+	{
+		delete onGuiUpdateCallback;
+	}
+	onGuiUpdateCallback = new QJSValue(func);
 }
 //----------------------------------------------------
 void QtScriptInstance::print(const QString& msg)
@@ -516,6 +1211,23 @@ void QtScriptInstance::print(const QString& msg)
 	{
 		dialog->logOutput(msg);
 	}
+	else
+	{
+		qDebug() << msg;
+	}
+}
+//----------------------------------------------------
+bool QtScriptInstance::onEmulationThread()
+{
+	bool isEmuThread = (consoleWindow != nullptr) && 
+		(QThread::currentThread() == consoleWindow->emulatorThread);
+	return isEmuThread;
+}
+//----------------------------------------------------
+bool QtScriptInstance::onGuiThread()
+{
+	bool isGuiThread = (QThread::currentThread() == QApplication::instance()->thread());
+	return isGuiThread;
 }
 //----------------------------------------------------
 int QtScriptInstance::throwError(QJSValue::ErrorType errorType, const QString &message)
@@ -550,6 +1262,26 @@ void QtScriptInstance::printSymbols(QJSValue& val, int iter)
 	}
 }
 //----------------------------------------------------
+int  QtScriptInstance::runFunc(QJSValue &func, const QJSValueList& args)
+{
+	int retval = 0;
+	auto state = getExecutionState();
+
+	state->start();
+
+	QJSValue callResult = func.call(args);
+
+	state->stop();
+
+	if (callResult.isError())
+	{
+		retval = -1;
+		running = false;
+		print(callResult.toString());
+	}
+	return retval;
+}
+//----------------------------------------------------
 int  QtScriptInstance::call(const QString& funcName, const QJSValueList& args)
 {
 	if (engine == nullptr)
@@ -564,47 +1296,113 @@ int  QtScriptInstance::call(const QString& funcName, const QJSValueList& args)
 	QJSValue func = engine->globalObject().property(funcName);
 
 	FCEU_WRAPPER_LOCK();
-	QJSValue callResult = func.call(args);
+	int retval = runFunc(func, args);
 	FCEU_WRAPPER_UNLOCK();
 
-	if (callResult.isError())
-	{
-		print(callResult.toString());
-	}
-	else
-	{
-		//printf("Script Call Success!\n");
-	}
-
-	return 0;
+	return retval;
 }
 //----------------------------------------------------
 void QtScriptInstance::stopRunning()
 {
+	FCEU_WRAPPER_LOCK();
 	if (running)
 	{
-		if (onScriptStopCallback.isCallable())
+		if (onScriptStopCallback != nullptr && onScriptStopCallback->isCallable())
 		{
-			onScriptStopCallback.call();
+			runFunc( *onScriptStopCallback );
 		}
 		running = false;
+
+		mem->reset();
 	}
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------
 void QtScriptInstance::onFrameBegin()
 {
-	if (running && onFrameBeginCallback.isCallable())
+	if (running)
 	{
-		onFrameBeginCallback.call();
+		if (onFrameBeginCallback != nullptr && onFrameBeginCallback->isCallable())
+		{
+			runFunc( *onFrameBeginCallback );
+		}
+		if (frameAdvanceCount > 0)
+		{
+			if (frameAdvanceState == 0)
+			{
+				FCEUI_FrameAdvance();
+				frameAdvanceState = 1;
+				frameAdvanceCount--;
+			}
+		}
 	}
 }
 //----------------------------------------------------
 void QtScriptInstance::onFrameFinish()
 {
-	if (running && onFrameFinishCallback.isCallable())
+	if (running)
 	{
-		onFrameFinishCallback.call();
+		if (onFrameFinishCallback != nullptr && onFrameFinishCallback->isCallable())
+		{
+			runFunc( *onFrameFinishCallback );
+		}
+		if (frameAdvanceState == 1)
+		{
+			FCEUI_FrameAdvanceEnd();
+			frameAdvanceState = 0;
+		}
 	}
+}
+//----------------------------------------------------
+void QtScriptInstance::onGuiUpdate()
+{
+	if (running && onGuiUpdateCallback != nullptr && onGuiUpdateCallback->isCallable())
+	{
+		runFunc( *onGuiUpdateCallback );
+	}
+}
+//----------------------------------------------------
+ScriptExecutionState* QtScriptInstance::getExecutionState()
+{
+	ScriptExecutionState* state;
+
+	if (onEmulationThread())
+	{
+		state = &emuFuncState;
+	}
+	else
+	{
+		state = &guiFuncState;
+	}
+	return state;
+}
+//----------------------------------------------------
+void QtScriptInstance::checkForHang()
+{
+	static constexpr unsigned int funcTimeoutMs = 1000;
+
+	if ( guiFuncState.isRunning() )
+	{
+		unsigned int timeRunningMs = guiFuncState.timeCheck();
+
+		if (timeRunningMs > funcTimeoutMs)
+		{
+			printf("Interrupted GUI Thread Script Function\n");
+			engine->setInterrupted(true);
+		}
+	}
+
+	if ( emuFuncState.isRunning() )
+	{
+		unsigned int timeRunningMs = emuFuncState.timeCheck();
+
+		if (timeRunningMs > funcTimeoutMs)
+		{
+			printf("Interrupted Emulation Thread Script Function\n");
+			engine->setInterrupted(true);
+		}
+	}
+
 }
 //----------------------------------------------------
 QString QtScriptInstance::openFileBrowser(const QString& initialPath)
@@ -665,10 +1463,19 @@ QtScriptManager::QtScriptManager(QObject* parent)
 	: QObject(parent)
 {
 	_instance = this;
+	monitorThread = new ScriptMonitorThread_t();
+	monitorThread->start();
+
+	periodicUpdateTimer = new QTimer(this);
+	connect( periodicUpdateTimer, &QTimer::timeout, this, &QtScriptManager::guiUpdate );
+	periodicUpdateTimer->start(50); // ~20hz
 }
 //----------------------------------------------------
 QtScriptManager::~QtScriptManager()
 {
+	monitorThread->requestInterruption();
+	monitorThread->wait();
+
 	_instance = nullptr;
 	//printf("QtScriptManager destroyed\n");
 }
@@ -692,11 +1499,13 @@ void QtScriptManager::destroy(void)
 //----------------------------------------------------
 void QtScriptManager::addScriptInstance(QtScriptInstance* script)
 {
+	FCEU::autoScopedLock autoLock(scriptListMutex);
 	scriptList.push_back(script);
 }
 //----------------------------------------------------
 void QtScriptManager::removeScriptInstance(QtScriptInstance* script)
 {
+	FCEU::autoScopedLock autoLock(scriptListMutex);
 	auto it = scriptList.begin();
 
 	while (it != scriptList.end())
@@ -730,6 +1539,41 @@ void QtScriptManager::frameFinishedUpdate()
 		script->onFrameFinish();
 	}
 	FCEU_WRAPPER_UNLOCK();
+}
+//----------------------------------------------------
+void QtScriptManager::guiUpdate()
+{
+	FCEU_WRAPPER_LOCK();
+	for (auto script : scriptList)
+	{
+		script->onGuiUpdate();
+	}
+	FCEU_WRAPPER_UNLOCK();
+}
+//----------------------------------------------------
+//---- Qt Script Monitor Thread
+//----------------------------------------------------
+ScriptMonitorThread_t::ScriptMonitorThread_t(QObject *parent)
+	: QThread(parent)
+{
+}
+//----------------------------------------------------
+void ScriptMonitorThread_t::run()
+{
+	//printf("Script Monitor Thread is Running...\n");
+	QtScriptManager* manager = QtScriptManager::getInstance();
+
+	while (!isInterruptionRequested())
+	{
+		manager->scriptListMutex.lock();
+		for (auto script : manager->scriptList)
+		{
+			script->checkForHang();
+		}
+		manager->scriptListMutex.unlock();
+		msleep(ScriptExecutionState::checkPeriod);
+	}
+	//printf("Script Monitor Thread is Stopping...\n");
 }
 //----------------------------------------------------
 //---- Qt Script Dialog Window
@@ -858,7 +1702,10 @@ QScriptDialog_t::~QScriptDialog_t(void)
 
 	periodicTimer->stop();
 
+	clearPropertyTree();
+
 	scriptInstance->stopRunning();
+	delete scriptInstance;
 
 	settings.setValue("QScriptWindow/geometry", saveGeometry());
 }
@@ -1237,6 +2084,7 @@ void QScriptDialog_t::openScriptFile(void)
 void QScriptDialog_t::startScript(void)
 {
 	FCEU_WRAPPER_LOCK();
+	jsOutput->clear();
 	clearPropertyTree();
 	scriptInstance->resetEngine();
 	if (scriptInstance->loadScriptFile(scriptPath->text()))

@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+#include <QColor>
 #include <QWidget>
 #include <QDialog>
 #include <QTabWidget>
@@ -25,12 +26,44 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QJSEngine>
+#include <QThread>
 
 #include "Qt/main.h"
+#include "utils/mutex.h"
 #include "utils/timeStamp.h"
 
 class QScriptDialog_t;
 class QtScriptInstance;
+
+namespace JS
+{
+
+class ColorScriptObject: public QObject
+{
+	Q_OBJECT
+	Q_PROPERTY(int red READ getRed WRITE setRed)
+	Q_PROPERTY(int green READ getGreen WRITE setGreen)
+	Q_PROPERTY(int blue READ getBlue WRITE setBlue)
+	Q_PROPERTY(int palette READ getPalette WRITE setPalette)
+public:
+	Q_INVOKABLE ColorScriptObject(int r=0, int g=0, int b=0);
+	~ColorScriptObject();
+
+private:
+	QColor color;
+	int    _palette;
+	static int numInstances;
+
+public slots:
+	Q_INVOKABLE  int getRed(){ return color.red(); }
+	Q_INVOKABLE  int getGreen(){ return color.green(); }
+	Q_INVOKABLE  int getBlue(){ return color.blue(); }
+	Q_INVOKABLE  void setRed(int r){ color.setRed(r); }
+	Q_INVOKABLE  void setGreen(int g){ color.setGreen(g); }
+	Q_INVOKABLE  void setBlue(int b){ color.setBlue(b); }
+	Q_INVOKABLE  int getPalette(){ return _palette; }
+	Q_INVOKABLE  void setPalette(int p){ _palette = p; }
+};
 
 class EmuScriptObject: public QObject
 {
@@ -54,19 +87,53 @@ public slots:
 	Q_INVOKABLE  void pause();
 	Q_INVOKABLE  void unpause();
 	Q_INVOKABLE  bool paused();
-	Q_INVOKABLE  int  framecount();
-	Q_INVOKABLE  int  lagcount();
+	Q_INVOKABLE  void frameAdvance();
+	Q_INVOKABLE  int  frameCount();
+	Q_INVOKABLE  int  lagCount();
 	Q_INVOKABLE  bool lagged();
-	Q_INVOKABLE  void setlagflag(bool flag);
+	Q_INVOKABLE  void setLagFlag(bool flag);
 	Q_INVOKABLE  bool emulating();
-	Q_INVOKABLE  void registerBefore(const QJSValue& func);
-	Q_INVOKABLE  void registerAfter(const QJSValue& func);
+	Q_INVOKABLE  bool isReadOnly();
+	Q_INVOKABLE  void setReadOnly(bool flag);
+	Q_INVOKABLE  void setRenderPlanes(bool sprites, bool background);
+	Q_INVOKABLE  void registerBeforeFrame(const QJSValue& func);
+	Q_INVOKABLE  void registerAfterFrame(const QJSValue& func);
 	Q_INVOKABLE  void registerStop(const QJSValue& func);
 	Q_INVOKABLE  void message(const QString& msg);
 	Q_INVOKABLE  void speedMode(const QString& mode);
 	Q_INVOKABLE  bool loadRom(const QString& romPath);
+	Q_INVOKABLE  bool onEmulationThread();
+	Q_INVOKABLE  bool addGameGenie(const QString& code);
+	Q_INVOKABLE  bool delGameGenie(const QString& code);
+	Q_INVOKABLE  void exit();
 	Q_INVOKABLE  QString getDir();
+	Q_INVOKABLE  QJSValue getScreenPixel(int x, int y, bool useBackup = false);
 
+};
+
+class RomScriptObject: public QObject
+{
+	Q_OBJECT
+public:
+	RomScriptObject(QObject* parent = nullptr);
+	~RomScriptObject();
+
+	void setEngine(QJSEngine* _engine){ engine = _engine; }
+	void setDialog(QScriptDialog_t* _dialog){ dialog = _dialog; }
+private:
+	QJSEngine* engine = nullptr;
+	QScriptDialog_t* dialog = nullptr;
+	QtScriptInstance* script = nullptr;
+
+public slots:
+	Q_INVOKABLE  bool    isLoaded();
+	Q_INVOKABLE QString  getFileName();
+	Q_INVOKABLE QString  getHash(const QString& type);
+	Q_INVOKABLE  uint8_t readByte(int address);
+	Q_INVOKABLE   int8_t readByteSigned(int address);
+	Q_INVOKABLE  uint8_t readByteUnsigned(int address);
+	Q_INVOKABLE QJSValue readByteRange(int start, int end);
+	Q_INVOKABLE  void    writeByte(int address, int value);
 };
 
 class MemoryScriptObject: public QObject
@@ -78,11 +145,26 @@ public:
 
 	void setEngine(QJSEngine* _engine){ engine = _engine; }
 	void setDialog(QScriptDialog_t* _dialog){ dialog = _dialog; }
+	void reset();
 
+	QtScriptInstance* getScript(){ return script; }
+	QJSValue* getReadFunc(int address) { return readFunc[address]; }
+	QJSValue* getWriteFunc(int address) { return writeFunc[address]; }
+	QJSValue* getExecFunc(int address) { return execFunc[address]; }
 private:
+	static constexpr int AddressRange = 0x10000;
 	QJSEngine* engine = nullptr;
 	QScriptDialog_t* dialog = nullptr;
 	QtScriptInstance* script = nullptr;
+	QJSValue* readFunc[AddressRange] = { nullptr };
+	QJSValue* writeFunc[AddressRange] = { nullptr };
+	QJSValue* execFunc[AddressRange] = { nullptr };
+	int numReadFuncsRegistered = 0;
+	int numWriteFuncsRegistered = 0;
+	int numExecFuncsRegistered = 0;
+
+	void registerCallback(int type, const QJSValue& func, int address, int size = 1);
+	void unregisterCallback(int type, const QJSValue& func, int address, int size = 1);
 
 public slots:
 	Q_INVOKABLE  uint8_t readByte(int address);
@@ -104,6 +186,66 @@ public slots:
 	Q_INVOKABLE     void setRegisterY(uint8_t v);
 	Q_INVOKABLE     void setRegisterS(uint8_t v);
 	Q_INVOKABLE     void setRegisterP(uint8_t v);
+	Q_INVOKABLE     void registerRead(const QJSValue& func, int address, int size = 1);
+	Q_INVOKABLE     void registerWrite(const QJSValue& func, int address, int size = 1);
+	Q_INVOKABLE     void registerExec(const QJSValue& func, int address, int size = 1);
+	Q_INVOKABLE     void unregisterRead(const QJSValue& func, int address, int size = 1);
+	Q_INVOKABLE     void unregisterWrite(const QJSValue& func, int address, int size = 1);
+	Q_INVOKABLE     void unregisterExec(const QJSValue& func, int address, int size = 1);
+	Q_INVOKABLE     void unregisterAll();
+};
+
+class PpuScriptObject: public QObject
+{
+	Q_OBJECT
+public:
+	PpuScriptObject(QObject* parent = nullptr);
+	~PpuScriptObject();
+
+	void setEngine(QJSEngine* _engine){ engine = _engine; }
+	void setDialog(QScriptDialog_t* _dialog){ dialog = _dialog; }
+private:
+	QJSEngine* engine = nullptr;
+	QScriptDialog_t* dialog = nullptr;
+	QtScriptInstance* script = nullptr;
+
+public slots:
+	Q_INVOKABLE  uint8_t readByte(int address);
+	Q_INVOKABLE   int8_t readByteSigned(int address);
+	Q_INVOKABLE  uint8_t readByteUnsigned(int address);
+	Q_INVOKABLE QJSValue readByteRange(int start, int end);
+	Q_INVOKABLE  void    writeByte(int address, int value);
+};
+
+} // JS
+
+class ScriptExecutionState
+{
+	public:
+		void start()
+		{
+			timeMs = 0;
+			executing = true;
+		}
+		void stop()
+		{
+			executing = false;
+			timeMs = 0;
+		}
+		bool isRunning(){ return executing; }
+
+		unsigned int timeCheck()
+		{
+			unsigned int retval = timeMs;
+			timeMs += checkPeriod;
+			return retval;
+		}
+
+		static constexpr unsigned int checkPeriod = 100;
+
+	private:
+		bool executing = false;
+		unsigned int timeMs = 0;
 };
 
 class QtScriptInstance : public QObject
@@ -120,35 +262,64 @@ public:
 	void stopRunning();
 
 	int  call(const QString& funcName, const QJSValueList& args = QJSValueList());
+	void frameAdvance();
 	void onFrameBegin();
 	void onFrameFinish();
+	void onGuiUpdate();
+	void checkForHang();
+	int  runFunc(QJSValue &func, const QJSValueList& args = QJSValueList());
 
 	int  throwError(QJSValue::ErrorType errorType, const QString &message = QString());
 
+	QObject* getObjectParent();
 	QJSEngine* getEngine(){ return engine; };
 private:
 
-	int configEngine();
+	int  initEngine();
+	void shutdownEngine();
 	void printSymbols(QJSValue& val, int iter = 0);
 	void loadObjectChildren(QJSValue& jsObject, QObject* obj);
 
+	ScriptExecutionState* getExecutionState();
+
 	QJSEngine* engine = nullptr;
 	QScriptDialog_t* dialog = nullptr;
-	EmuScriptObject* emu = nullptr;
-	MemoryScriptObject* mem = nullptr;
+	JS::EmuScriptObject* emu = nullptr;
+	JS::RomScriptObject* rom = nullptr;
+	JS::PpuScriptObject* ppu = nullptr;
+	JS::MemoryScriptObject* mem = nullptr;
 	QWidget* ui_rootWidget = nullptr;
-	QJSValue onFrameBeginCallback;
-	QJSValue onFrameFinishCallback;
-	QJSValue onScriptStopCallback;
+	QJSValue *onFrameBeginCallback = nullptr;
+	QJSValue *onFrameFinishCallback = nullptr;
+	QJSValue *onScriptStopCallback = nullptr;
+	QJSValue *onGuiUpdateCallback = nullptr;
+	ScriptExecutionState guiFuncState;
+	ScriptExecutionState emuFuncState;
+	int frameAdvanceCount = 0;
+	int frameAdvanceState = 0;
 	bool running = false;
 
 public slots:
 	Q_INVOKABLE  void print(const QString& msg);
 	Q_INVOKABLE  void loadUI(const QString& uiFilePath);
 	Q_INVOKABLE  QString openFileBrowser(const QString& initialPath = QString());
-	Q_INVOKABLE  void registerBefore(const QJSValue& func);
-	Q_INVOKABLE  void registerAfter(const QJSValue& func);
+	Q_INVOKABLE  void registerBeforeEmuFrame(const QJSValue& func);
+	Q_INVOKABLE  void registerAfterEmuFrame(const QJSValue& func);
 	Q_INVOKABLE  void registerStop(const QJSValue& func);
+	Q_INVOKABLE  void registerGuiUpdate(const QJSValue& func);
+	Q_INVOKABLE  bool onGuiThread();
+	Q_INVOKABLE  bool onEmulationThread();
+};
+
+class  ScriptMonitorThread_t : public QThread
+{
+	Q_OBJECT
+
+	protected:
+		void run( void ) override;
+
+	public:
+		ScriptMonitorThread_t( QObject *parent = 0 );
 };
 
 class QtScriptManager : public QObject
@@ -169,12 +340,17 @@ public:
 private:
 	static QtScriptManager* _instance;
 
+	FCEU::mutex scriptListMutex;
 	QList<QtScriptInstance*> scriptList;
-	FCEU::timeStampRecord lastFrameUpdate;
+	QTimer  *periodicUpdateTimer = nullptr;
+	ScriptMonitorThread_t *monitorThread = nullptr;
+
+	friend class ScriptMonitorThread_t; 
 
 public slots:
 	void frameBeginUpdate();
 	void frameFinishedUpdate();
+	void guiUpdate();
 };
 
 class JsPropertyItem : public QTreeWidgetItem
