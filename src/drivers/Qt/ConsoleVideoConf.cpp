@@ -35,7 +35,7 @@
 #include "Qt/ConsoleVideoConf.h"
 #include "Qt/nes_shm.h"
 
-#ifdef WIN32
+#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
 #include <QtPlatformHeaders/QWindowsWindowFunctions>
 #endif
 
@@ -132,7 +132,7 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 
 	vbox1->addWidget( gl_LF_chkBox );
 
-#ifdef WIN32
+#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
 	// 1px full screen border - hack fix for QOpenGLWidget fullscreen issues
 	winFullScreenBorderCbx  = new QCheckBox( tr("Fullscreen Border (1px)") );
 	winFullScreenBorderCbx->setToolTip(tr("Hack fix for QOpenGLWidget fullscreen issue. May not be needed."));
@@ -518,7 +518,7 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	scrRateReadout->setFont( font );
 	scrRateReadout->setReadOnly(true);
 	scrRateReadout->setAlignment(Qt::AlignCenter);
-	sprintf( stmp, "%.3f", consoleWindow->getRefreshRate() );
+	snprintf( stmp, sizeof(stmp), "%.3f", consoleWindow->getRefreshRate() );
 	scrRateReadout->setText( tr(stmp) );
 
 	hbox->addWidget( new QLabel( tr("Refresh Rate (Hz):") ) );
@@ -606,11 +606,11 @@ void ConsoleVideoConfDialog_t::updateReadouts(void)
 			v = consoleWindow->viewport_Interface->size();
 		}
 
-		sprintf( stmp, "%i x %i ", w.width(), w.height() );
+		snprintf( stmp, sizeof(stmp), "%i x %i ", w.width(), w.height() );
 
 		winSizeReadout->setText( tr(stmp) );
 
-		sprintf( stmp, "%i x %i ", v.width(), v.height() );
+		snprintf( stmp, sizeof(stmp), "%i x %i ", v.width(), v.height() );
 
 		vpSizeReadout->setText( tr(stmp) );
 	}
@@ -736,7 +736,7 @@ void ConsoleVideoConfDialog_t::openGL_linearFilterChanged( int value )
    }
 }
 //----------------------------------------------------
-#ifdef WIN32
+#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
 void ConsoleVideoConfDialog_t::winFullScreenBorderChanged(int value)
 {
 	bool opt = (value != Qt::Unchecked);

@@ -35,6 +35,7 @@
 #include "Qt/sdl-video.h"
 #include "Qt/AviRecord.h"
 #include "Qt/unix-netplay.h"
+#include "Qt/NetPlay.h"
 #include "Qt/TasEditor/taseditor_config.h"
 
 #ifdef WIN32
@@ -618,13 +619,19 @@ InitConfig()
 	config->addOption("SDL.winFullScreenBorder", 0);
 	#endif
 
+	QString userName = qgetenv("USER");
+    	if (userName.isEmpty())
+	{
+        	userName = qgetenv("USERNAME");
+	}
+
 	// network play options - netplay is broken
 	config->addOption("server", "SDL.NetworkIsServer", 0);
-	config->addOption('n', "net", "SDL.NetworkIP", "");
-	config->addOption('u', "user", "SDL.NetworkUsername", "");
+	config->addOption('n', "net", "SDL.NetworkIP", "localhost");
+	config->addOption('u', "user", "SDL.NetworkUsername", userName.toLocal8Bit().constData());
 	config->addOption('w', "pass", "SDL.NetworkPassword", "");
 	config->addOption('k', "netkey", "SDL.NetworkGameKey", "");
-	config->addOption("port", "SDL.NetworkPort", 4046);
+	config->addOption("port", "SDL.NetworkPort", NetPlayServer::DefaultPort);
 	config->addOption("players", "SDL.NetworkPlayers", 1);
      
 	// input configuration options
@@ -638,6 +645,7 @@ InitConfig()
 	config->addOption("SDL.AutofireOffFrames", 1);
 	config->addOption("SDL.AutofireCustomOnFrames" , 1);
 	config->addOption("SDL.AutofireCustomOffFrames", 1);
+	config->addOption("SDL.NewInputDeviceBehavior", 1);
 
 	// display input
 	config->addOption("inputdisplay", "SDL.InputDisplay", 0);
@@ -809,7 +817,7 @@ InitConfig()
 	for (unsigned int i=0; i<10; i++)
 	{
 		char buf[128];
-		sprintf(buf, "SDL.RecentRom%02u", i);
+		snprintf(buf, sizeof(buf), "SDL.RecentRom%02u", i);
 
 		config->addOption( buf, "");
 	}
@@ -817,7 +825,7 @@ InitConfig()
 	for (unsigned int i=0; i<10; i++)
 	{
 		char buf[128];
-		sprintf(buf, "SDL.RecentTasProject%02u", i);
+		snprintf(buf, sizeof(buf), "SDL.RecentTasProject%02u", i);
 
 		config->addOption( buf, "");
 	}
@@ -1076,7 +1084,7 @@ InitConfig()
 
 		//keyText.assign(" mod=");
 
-		//sprintf( buf, "  key=%s", SDL_GetKeyName( Hotkeys[i] ) );
+		//snprintf( buf, sizeof(buf), "  key=%s", SDL_GetKeyName( Hotkeys[i] ) );
 
 		if ( hotKeyName[0] != 0 )
 		{

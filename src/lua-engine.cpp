@@ -906,7 +906,7 @@ static void LuaStackToBinaryConverter(lua_State* L, int i, std::vector<unsigned 
 		default:
 			{
 				char errmsg [1024];
-				sprintf(errmsg, "values of type \"%s\" are not allowed to be returned from registered save functions.\r\n", luaL_typename(L,i));
+				snprintf(errmsg, sizeof(errmsg), "values of type \"%s\" are not allowed to be returned from registered save functions.\r\n", luaL_typename(L,i));
 				if(info_print)
 					info_print(info_uid, errmsg);
 				else
@@ -1070,9 +1070,9 @@ void BinaryToLuaStackConverter(lua_State* L, const unsigned char*& data, unsigne
 			{
 				char errmsg [1024];
 				if(type <= 10 && type != LUA_TTABLE)
-					sprintf(errmsg, "values of type \"%s\" are not allowed to be loaded into registered load functions. The save state's Lua save data file might be corrupted.\r\n", lua_typename(L,type));
+					snprintf(errmsg, sizeof(errmsg), "values of type \"%s\" are not allowed to be loaded into registered load functions. The save state's Lua save data file might be corrupted.\r\n", lua_typename(L,type));
 				else
-					sprintf(errmsg, "The save state's Lua save data file seems to be corrupted.\r\n");
+					snprintf(errmsg, sizeof(errmsg), "The save state's Lua save data file seems to be corrupted.\r\n");
 				if(info_print)
 					info_print(info_uid, errmsg);
 				else
@@ -2113,7 +2113,7 @@ void HandleCallbackError(lua_State* L, bool stop, int msgDepth = -1)
 		lua_setfield(L, LUA_REGISTRYINDEX, guiCallbackTable);
 
 		char errmsg [2048];
-		sprintf(errmsg, "%s\n%s", lua_tostring(L,-1), trace);
+		snprintf(errmsg, sizeof(errmsg), "%s\n%s", lua_tostring(L,-1), trace);
 
 		// Error?
 #ifdef __WIN_DRIVER__
@@ -2899,7 +2899,7 @@ static int joypad_getimmediate(lua_State *L)
 		luaL_error(L,"Invalid input port (valid range 1-4, specified %d)", which);
 	}
 	// Currently only supports Windows, sorry...
-#ifdef __WIN_DRIVER__
+#if  defined(__WIN_DRIVER__) || defined(__QT_DRIVER__)
 	extern uint32 GetGamepadPressedImmediate();
 	uint8 buttons = GetGamepadPressedImmediate() >> ((which - 1) * 8);
 
@@ -6375,7 +6375,7 @@ void FCEU_LuaFrameBoundary()
 		lua_setfield(L, LUA_REGISTRYINDEX, guiCallbackTable);
 
 		char errmsg [1024];
-		sprintf(errmsg, "%s\n%s", lua_tostring(thread,-1), trace);
+		snprintf(errmsg, sizeof(errmsg), "%s\n%s", lua_tostring(thread,-1), trace);
 
 		// Error?
 #ifdef __WIN_DRIVER__
@@ -6738,7 +6738,7 @@ uint8 FCEU_LuaReadJoypad(int which, uint8 joyl) {
  *
  * This function will not return true if a script is not running.
  */
-int FCEU_LuaRerecordCountSkip() {
+bool FCEU_LuaRerecordCountSkip() {
 	// FIXME: return true if (there are any active callback functions && skipRerecords)
 	return L && luaRunning && skipRerecords;
 }

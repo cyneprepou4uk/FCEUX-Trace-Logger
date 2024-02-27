@@ -28,11 +28,16 @@
 #include <Windows.h>
 #endif
 
+#include <QUrl>
+#include <QFile>
+#include <QIODevice>
 #include <QTextEdit>
+#include <QFileInfo>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QSettings>
 #include <QHeaderView>
+#include <QDesktopServices>
 #include <QJSValueIterator>
 
 #ifdef __QT_UI_TOOLS__
@@ -71,6 +76,9 @@
 
 // File Base Name from Core
 extern char FileBase[];
+extern uint8 joy[4];
+
+static thread_local FCEU::JSEngine* currentEngine = nullptr;
 
 namespace JS
 {
@@ -92,6 +100,465 @@ ColorScriptObject::~ColorScriptObject()
 {
 	numInstances--;
 	//printf("ColorScriptObject %p Destructor: %i\n", this, numInstances);
+}
+//----------------------------------------------------
+//----  File Object
+//----------------------------------------------------
+int FileScriptObject::numInstances = 0;
+
+FileScriptObject::FileScriptObject(const QString& path)
+	: QObject()
+{
+	numInstances++;
+	//printf("FileScriptObject(%s) %p Constructor: %i\n", path.toLocal8Bit().constData(), this, numInstances);
+
+	moveToThread(QApplication::instance()->thread());
+
+	setFilePath(path);
+}
+//----------------------------------------------------
+FileScriptObject::~FileScriptObject()
+{
+	close();
+
+	numInstances--;
+	//printf("FileScriptObject %p Destructor: %i\n", this, numInstances);
+}
+//----------------------------------------------------
+void FileScriptObject::setTemporary(bool value)
+{
+	tmp = value;
+}
+//----------------------------------------------------
+void FileScriptObject::setFilePath(const QString& path)
+{
+	if (isOpen())
+	{
+		auto* engine = FCEU::JSEngine::getCurrent();
+		engine->throwError(QJSValue::GenericError, "cannot change file path while open");
+	}
+	QFileInfo fi(path);
+	filepath = fi.absoluteFilePath();
+	//printf("FileScriptObject::filepath(%s)\n", filepath.toLocal8Bit().constData());
+}
+//----------------------------------------------------
+QString FileScriptObject::fileName()
+{
+	QFileInfo fi(filepath);
+	return fi.fileName();
+}
+//----------------------------------------------------
+QString FileScriptObject::fileSuffix()
+{
+	QFileInfo fi(filepath);
+	return fi.completeSuffix();
+}
+//----------------------------------------------------
+bool FileScriptObject::open(int mode)
+{
+	close();
+
+	if (filepath.isEmpty())
+	{
+		auto* engine = FCEU::JSEngine::getCurrent();
+		engine->throwError(QJSValue::GenericError, "unspecified file path ");
+		return false;
+	}
+
+	if (tmp)
+	{
+		file = new QTemporaryFile();
+	}
+	else
+	{
+		file = new QFile(filepath);
+	}
+
+	if (file == nullptr)
+	{
+		auto* engine = FCEU::JSEngine::getCurrent();
+		engine->throwError(QJSValue::GenericError, "failed to create QFile object");
+		return false;
+	}
+
+	QIODevice::OpenMode deviceMode = QIODevice::NotOpen;
+
+	if (mode & ReadOnly)
+	{
+		deviceMode |= QIODevice::ReadOnly;
+	}
+	if (mode & WriteOnly)
+	{
+		deviceMode |= QIODevice::WriteOnly;
+	}
+	if (mode & Append)
+	{
+		deviceMode |= QIODevice::Append;
+	}
+	if (mode & Truncate)
+	{
+		deviceMode |= QIODevice::Truncate;
+	}
+
+	bool success = file->open(deviceMode);
+
+	//printf("FileOpen: %i\n", success);
+
+	return success;
+}
+//----------------------------------------------------
+bool FileScriptObject::isOpen()
+{
+	bool flag = false;
+
+	if (file != nullptr)
+	{
+		flag = file->isOpen();
+	}
+	return flag;
+}
+//----------------------------------------------------
+bool FileScriptObject::isReadable()
+{
+	bool flag = false;
+
+	if (file != nullptr)
+	{
+		flag = file->isReadable();
+	}
+	return flag;
+}
+//----------------------------------------------------
+bool FileScriptObject::isWritable()
+{
+	bool flag = false;
+
+	if (file != nullptr)
+	{
+		flag = file->isWritable();
+	}
+	return flag;
+}
+//----------------------------------------------------
+bool FileScriptObject::atEnd()
+{
+	bool retval = false;
+
+	if (file != nullptr)
+	{
+		retval = file->atEnd();
+	}
+	return retval;
+}
+//----------------------------------------------------
+bool FileScriptObject::truncate()
+{
+	bool retval = false;
+
+	if (file != nullptr)
+	{
+		retval = file->resize(0);
+	}
+	return retval;
+}
+//----------------------------------------------------
+bool FileScriptObject::resize(int64_t size)
+{
+	bool retval = false;
+
+	if (file != nullptr)
+	{
+		retval = file->resize(size);
+	}
+	return retval;
+}
+//----------------------------------------------------
+int64_t FileScriptObject::skip(int64_t size)
+{
+	int64_t retval = 0;
+
+	if (file != nullptr)
+	{
+		retval = file->skip(size);
+	}
+	return retval;
+}
+//----------------------------------------------------
+bool FileScriptObject::seek(int64_t pos)
+{
+	bool retval = false;
+
+	if (file != nullptr)
+	{
+		retval = file->seek(pos);
+	}
+	return retval;
+}
+//----------------------------------------------------
+int64_t FileScriptObject::pos()
+{
+	int64_t retval = 0;
+
+	if (file != nullptr)
+	{
+		retval = file->pos();
+	}
+	return retval;
+}
+//----------------------------------------------------
+int64_t FileScriptObject::bytesAvailable()
+{
+	int64_t retval = 0;
+
+	if (file != nullptr)
+	{
+		retval = file->bytesAvailable();
+	}
+	return retval;
+}
+//----------------------------------------------------
+bool FileScriptObject::flush()
+{
+	bool retval = false;
+
+	if (file != nullptr)
+	{
+		retval = file->flush();
+	}
+	return retval;
+}
+//----------------------------------------------------
+void FileScriptObject::close()
+{
+	if (file != nullptr)
+	{
+		if (file->isOpen())
+		{
+			file->close();
+		}
+		if (tmp)
+		{
+			file->remove();
+		}
+		delete file;
+		file = nullptr;
+	}
+}
+//----------------------------------------------------
+int  FileScriptObject::writeString(const QString& s)
+{
+	if ( (file == nullptr) || !file->isOpen())
+	{
+		auto* engine = FCEU::JSEngine::getCurrent();
+		engine->throwError(QJSValue::GenericError, "file is not open ");
+		return -1;
+	}
+	int bytesWritten = file->write( s.toLocal8Bit() );
+
+	return bytesWritten;
+}
+//----------------------------------------------------
+int  FileScriptObject::writeData(const QByteArray& s)
+{
+	if ( (file == nullptr) || !file->isOpen())
+	{
+		auto* engine = FCEU::JSEngine::getCurrent();
+		engine->throwError(QJSValue::GenericError, "file is not open ");
+		return -1;
+	}
+	int bytesWritten = file->write( s );
+
+	return bytesWritten;
+}
+//----------------------------------------------------
+QString FileScriptObject::readLine()
+{
+	QString line;
+
+	if ( (file == nullptr) || !file->isOpen())
+	{
+		auto* engine = FCEU::JSEngine::getCurrent();
+		engine->throwError(QJSValue::GenericError, "file is not open ");
+		return line;
+	}
+	QByteArray byteArray = file->readLine();
+
+	line = QString::fromLocal8Bit(byteArray);
+
+	//printf("ReadLine: %s\n", line.toLocal8Bit().constData());
+
+	return line;
+}
+//----------------------------------------------------
+QByteArray FileScriptObject::readData(unsigned int maxBytes)
+{
+	QJSValue arrayBuffer;
+	QByteArray byteArray;
+
+	auto* engine = FCEU::JSEngine::getCurrent();
+
+	if ( (file == nullptr) || !file->isOpen())
+	{
+		engine->throwError(QJSValue::GenericError, "file is not open ");
+		return byteArray;
+	}
+	if (maxBytes > 0)
+	{
+		byteArray = file->read(maxBytes);
+	}
+	else
+	{
+		byteArray = file->readAll();
+	}
+
+	//arrayBuffer = engine->toScriptValue(byteArray);
+
+	return byteArray;
+}
+//----------------------------------------------------
+QByteArray FileScriptObject::peekData(unsigned int maxBytes)
+{
+	QJSValue arrayBuffer;
+	QByteArray byteArray;
+
+	auto* engine = FCEU::JSEngine::getCurrent();
+
+	if ( (file == nullptr) || !file->isOpen())
+	{
+		engine->throwError(QJSValue::GenericError, "file is not open ");
+		return byteArray;
+	}
+	byteArray = file->peek(maxBytes);
+
+	//arrayBuffer = engine->toScriptValue(byteArray);
+
+	return byteArray;
+}
+//----------------------------------------------------
+bool FileScriptObject::putChar(char c)
+{
+	if ( (file == nullptr) || !file->isOpen())
+	{
+		auto* engine = FCEU::JSEngine::getCurrent();
+		engine->throwError(QJSValue::GenericError, "file is not open ");
+		return false;
+	}
+	bool success = file->putChar(c);
+
+	return success;
+}
+//----------------------------------------------------
+char FileScriptObject::getChar()
+{
+	if ( (file == nullptr) || !file->isOpen())
+	{
+		auto* engine = FCEU::JSEngine::getCurrent();
+		engine->throwError(QJSValue::GenericError, "file is not open ");
+		return -1;
+	}
+	char c = -1;
+	bool success = file->getChar(&c);
+
+	if (!success)
+	{
+		c = -1;
+	}
+	return c;
+}
+//----------------------------------------------------
+//----  Joypad Object
+//----------------------------------------------------
+int JoypadScriptObject::numInstances = 0;
+/* Joypad Override Logic True Table
+	11 - true		01 - pass-through (default)
+	00 - false		10 - invert		*/
+uint8_t JoypadScriptObject::jsOverrideMask1[MAX_JOYPAD_PLAYERS]= { 0xFF, 0xFF, 0xFF, 0xFF };
+uint8_t JoypadScriptObject::jsOverrideMask2[MAX_JOYPAD_PLAYERS]= { 0x00, 0x00, 0x00, 0x00 };
+
+JoypadScriptObject::JoypadScriptObject(int playerIdx, bool immediate)
+	: QObject()
+{
+	numInstances++;
+	//printf("JoypadScriptObject %p Constructor: %i\n", this, numInstances);
+
+	moveToThread(QApplication::instance()->thread());
+
+	if ( (playerIdx < 0) || (playerIdx >= MAX_JOYPAD_PLAYERS) )
+	{
+		QString msg = "Error: Joypad player index (" + QString::number(playerIdx) + ") is out of bounds!\n";
+		auto* engine = FCEU::JSEngine::getCurrent();
+		if (engine != nullptr)
+		{
+			engine->throwError(QJSValue::RangeError, msg);
+		}
+		playerIdx = 0;
+	}
+
+	player = playerIdx;
+
+	refreshData(immediate);
+}
+//----------------------------------------------------
+JoypadScriptObject::~JoypadScriptObject()
+{
+	numInstances--;
+	//printf("JoypadScriptObject %p Destructor: %i\n", this, numInstances);
+}
+//----------------------------------------------------
+uint8_t JoypadScriptObject::readOverride(int which, uint8_t joyl)
+{
+	joyl = (joyl & jsOverrideMask1[which]) | (~joyl & jsOverrideMask2[which]);
+	jsOverrideMask1[which] = 0xFF;
+	jsOverrideMask2[which] = 0x00;
+	return joyl;
+
+}
+//----------------------------------------------------
+void JoypadScriptObject::refreshData(bool immediate)
+{
+	uint8_t buttons = 0;
+	if (immediate)
+	{
+		uint32_t gpData = GetGamepadPressedImmediate();
+		buttons = gpData >> (player * 8);
+	}
+	else
+	{
+		buttons = joy[player];
+	}
+	prev = current;
+
+	current.buttonMask = buttons;
+	current._immediate = immediate;
+}
+//----------------------------------------------------
+bool JoypadScriptObject::getButton(enum Button b)
+{
+	bool isPressed = false;
+	uint8_t mask = 0x01 << b;
+
+	//printf("mask=%08x  buttons=%08x\n", mask, current.buttonMask);
+	isPressed = (current.buttonMask & mask) ? true : false;
+	return isPressed;
+}
+//----------------------------------------------------
+bool JoypadScriptObject::buttonChanged(enum Button b)
+{
+	bool hasChanged = false;
+	uint8_t mask = 0x01 << b;
+
+	//printf("mask=%08x  buttons=%08x\n", mask, current.buttonMask);
+	hasChanged = ((current.buttonMask ^ prev.buttonMask) & mask) ? true : false;
+	return hasChanged;
+}
+//----------------------------------------------------
+Q_INVOKABLE void JoypadScriptObject::ovrdResetAll()
+{
+	for (int i=0; i<MAX_JOYPAD_PLAYERS; i++)
+	{
+		jsOverrideMask1[i] = 0xFF;
+		jsOverrideMask2[i] = 0x00;
+	}
 }
 //----------------------------------------------------
 //----  EMU State Object
@@ -124,7 +591,7 @@ EmuStateScriptObject::EmuStateScriptObject(const QJSValue& jsArg1, const QJSValu
 			//printf("EmuStateScriptObject %p JS Constructor(int): %i\n", this, numInstances);
 			setSlot(jsVal.toInt());
 
-			if (slot >= 0)
+			if ( (slot >= 0) && saveFileExists())
 			{
 				loadFromFile(filename);
 			}
@@ -225,7 +692,7 @@ bool EmuStateScriptObject::saveToFile(const QString& filepath)
 	{
 		return false;
 	}
-	FILE* outf = fopen(filepath.toLocal8Bit().data(),"wb");
+	FILE* outf = fopen(filepath.toLocal8Bit().constData(),"wb");
 	if (outf == nullptr)
 	{
 		return false;
@@ -246,9 +713,11 @@ bool EmuStateScriptObject::loadFromFile(const QString& filepath)
 		delete data;
 		data = nullptr;
 	}
-	FILE* inf = fopen(filepath.toLocal8Bit().data(),"rb");
+	FILE* inf = fopen(filepath.toLocal8Bit().constData(),"rb");
 	if (inf == nullptr)
 	{
+		QString msg = "JS EmuState::loadFromFile failed to open file: " + filepath;
+		logMessage(FCEU::JSEngine::WARNING, msg);
 		return false;
 	}
 	fseek(inf,0,SEEK_END);
@@ -257,12 +726,58 @@ bool EmuStateScriptObject::loadFromFile(const QString& filepath)
 	data = new EMUFILE_MEMORY(len);
 	if ( fread(data->buf(),1,len,inf) != static_cast<size_t>(len) )
 	{
-		FCEU_printf("Warning: JS EmuState::loadFromFile failed to load full buffer.\n");
+		QString msg = "JS EmuState::loadFromFile failed to load full buffer.";
+		logMessage(FCEU::JSEngine::WARNING, msg);
 		delete data;
 		data = nullptr;
 	}
 	fclose(inf);
 	return true;
+}
+//----------------------------------------------------
+void EmuStateScriptObject::logMessage(int lvl, QString& msg)
+{
+	auto* engine = FCEU::JSEngine::getCurrent();
+
+	if (engine != nullptr)
+	{
+		engine->logMessage(lvl, msg);
+	}
+}
+//----------------------------------------------------
+bool EmuStateScriptObject::saveFileExists()
+{
+	bool exists = false;
+	QFileInfo fileInfo(filename);
+
+	if (fileInfo.exists() && fileInfo.isFile())
+	{
+		exists = true;
+	}
+	return exists;
+}
+//----------------------------------------------------
+QJSValue EmuStateScriptObject::copy()
+{
+	QJSValue jsVal;
+	auto* engine = FCEU::JSEngine::getCurrent();
+
+	if (engine != nullptr)
+	{
+		EmuStateScriptObject* emuStateObj = new EmuStateScriptObject();
+
+		if (emuStateObj != nullptr)
+		{
+			*emuStateObj = *this;
+
+			jsVal = engine->newQObject(emuStateObj);
+
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+			QJSEngine::setObjectOwnership( emuStateObj, QJSEngine::JavaScriptOwnership);
+#endif
+		}
+	}
+	return jsVal;
 }
 //----------------------------------------------------
 //----  EMU Script Object
@@ -362,7 +877,7 @@ void EmuScriptObject::exit()
 //----------------------------------------------------
 void EmuScriptObject::message(const QString& msg)
 {
-	FCEU_DispMessage("%s",0, msg.toStdString().c_str());
+	FCEU_DispMessage("%s",0, msg.toLocal8Bit().constData());
 }
 //----------------------------------------------------
 void EmuScriptObject::speedMode(const QString& mode)
@@ -414,7 +929,7 @@ bool EmuScriptObject::addGameGenie(const QString& code)
 	uint8 Cval;
 	int Ccompare, Ctype;
 
-	if (!FCEUI_DecodeGG(code.toLocal8Bit().data(), &GGaddr, &GGval, &GGcomp))
+	if (!FCEUI_DecodeGG(code.toLocal8Bit().constData(), &GGaddr, &GGval, &GGcomp))
 	{
 		print("Failed to decode game genie code");
 		return false;
@@ -430,7 +945,7 @@ bool EmuScriptObject::addGameGenie(const QString& code)
 		i = i + 1;
 	}
 
-	if (FCEUI_AddCheat(code.toLocal8Bit().data(),GGaddr,GGval,GGcomp,1))
+	if (FCEUI_AddCheat(code.toLocal8Bit().constData(),GGaddr,GGval,GGcomp,1))
 	{
 		// Code was added
 		// Can't manage the display update the way I want, so I won't bother with it
@@ -455,7 +970,7 @@ bool EmuScriptObject::delGameGenie(const QString& code)
 	uint8 Cval;
 	int Ccompare, Ctype;
 
-	if (!FCEUI_DecodeGG(code.toLocal8Bit().data(), &GGaddr, &GGval, &GGcomp))
+	if (!FCEUI_DecodeGG(code.toLocal8Bit().constData(), &GGaddr, &GGval, &GGcomp))
 	{
 		print("Failed to decode game genie code");
 		return false;
@@ -732,6 +1247,210 @@ void PpuScriptObject::writeByte(int address, int value)
 	{
 		FFCEUX_PPUWrite(address, value);
 	}
+}
+//----------------------------------------------------
+//----  Movie Script Object
+//----------------------------------------------------
+//----------------------------------------------------
+MovieScriptObject::MovieScriptObject(QObject* parent)
+	: QObject(parent)
+{
+	script = qobject_cast<QtScriptInstance*>(parent);
+	engine = script->getEngine();
+}
+//----------------------------------------------------
+MovieScriptObject::~MovieScriptObject()
+{
+}
+//----------------------------------------------------
+bool MovieScriptObject::active()
+{
+	bool movieActive = (FCEUMOV_IsRecording() || FCEUMOV_IsPlaying());
+	return movieActive;
+}
+//----------------------------------------------------
+bool MovieScriptObject::isPlaying()
+{
+	bool playing = FCEUMOV_IsPlaying();
+	return playing;
+}
+//----------------------------------------------------
+bool MovieScriptObject::isRecording()
+{
+	bool recording = FCEUMOV_IsRecording();
+	return recording;
+}
+//----------------------------------------------------
+bool MovieScriptObject::isPowerOn()
+{
+	bool flag = false;
+	if (FCEUMOV_IsRecording() || FCEUMOV_IsPlaying())
+	{
+		flag = FCEUMOV_FromPoweron();
+	}
+	return flag;
+}
+//----------------------------------------------------
+bool MovieScriptObject::isFromSaveState()
+{
+	bool flag = false;
+	if (FCEUMOV_IsRecording() || FCEUMOV_IsPlaying())
+	{
+		flag = !FCEUMOV_FromPoweron();
+	}
+	return flag;
+}
+//----------------------------------------------------
+void MovieScriptObject::replay()
+{
+	FCEUI_MoviePlayFromBeginning();
+}
+//----------------------------------------------------
+bool MovieScriptObject::getReadOnly()
+{
+	return FCEUI_GetMovieToggleReadOnly();
+}
+//----------------------------------------------------
+void MovieScriptObject::setReadOnly(bool which)
+{
+	FCEUI_SetMovieToggleReadOnly(which);
+}
+//----------------------------------------------------
+int MovieScriptObject::mode()
+{
+	int _mode = IDLE;
+	if (FCEUMOV_Mode(MOVIEMODE_TASEDITOR))
+	{
+		_mode = TAS_EDITOR;
+	}
+	else if (FCEUMOV_IsRecording())
+	{
+		_mode = RECORD;
+	}
+	else if (FCEUMOV_IsFinished())
+	{
+		_mode = FINISHED; //Note: this comes before playback since playback checks for finished as well
+	}
+	else if (FCEUMOV_IsPlaying())
+	{
+		_mode = PLAYBACK;
+	}
+	else
+	{
+		_mode = IDLE;
+	}
+	return _mode;
+}
+//----------------------------------------------------
+void MovieScriptObject::stop()
+{
+	FCEUI_StopMovie();
+}
+//----------------------------------------------------
+int MovieScriptObject::frameCount()
+{
+	return FCEUMOV_GetFrame();
+}
+//----------------------------------------------------
+int MovieScriptObject::length()
+{
+	if (!FCEUMOV_IsRecording() && !FCEUMOV_IsPlaying() && !FCEUMOV_Mode(MOVIEMODE_TASEDITOR))
+	{
+		script->throwError(QJSValue::GenericError, "No movie loaded.");
+	}
+	return FCEUI_GetMovieLength();
+}
+//----------------------------------------------------
+int MovieScriptObject::rerecordCount()
+{
+	if (!FCEUMOV_IsRecording() && !FCEUMOV_IsPlaying() && !FCEUMOV_Mode(MOVIEMODE_TASEDITOR))
+	{
+		script->throwError(QJSValue::GenericError, "No movie loaded.");
+	}
+	return FCEUI_GetMovieRerecordCount();
+}
+//----------------------------------------------------
+QString MovieScriptObject::getFilepath()
+{
+	if (!FCEUMOV_IsRecording() && !FCEUMOV_IsPlaying() && !FCEUMOV_Mode(MOVIEMODE_TASEDITOR))
+	{
+		script->throwError(QJSValue::GenericError, "No movie loaded.");
+	}
+	return QString::fromStdString(FCEUI_GetMovieName());
+}
+//----------------------------------------------------
+QString MovieScriptObject::getFilename()
+{
+	if (!FCEUMOV_IsRecording() && !FCEUMOV_IsPlaying() && !FCEUMOV_Mode(MOVIEMODE_TASEDITOR))
+	{
+		script->throwError(QJSValue::GenericError, "No movie loaded.");
+	}
+	QFileInfo fi( QString::fromStdString(FCEUI_GetMovieName()) );
+	return fi.fileName();
+}
+//----------------------------------------------------
+bool MovieScriptObject::skipRerecords = false;
+//----------------------------------------------------
+void MovieScriptObject::rerecordCounting(bool counting)
+{
+	skipRerecords = counting;
+}
+//----------------------------------------------------
+bool MovieScriptObject::play(const QString& filename, bool readOnly, int pauseFrame)
+{
+	if (pauseFrame < 0) pauseFrame = 0;
+
+	// Load it!
+	bool loaded = FCEUI_LoadMovie(filename.toLocal8Bit().constData(), readOnly, pauseFrame);
+
+	return loaded;
+}
+//----------------------------------------------------
+bool MovieScriptObject::record(const QString& filename, int saveType, const QString author)
+{
+	if (filename.isEmpty())
+	{
+		script->throwError(QJSValue::GenericError, "movie.record(): Filename required");
+		return false;
+	}
+
+	// No need to use the full functionality of the enum
+	EMOVIE_FLAG flags;
+	if      (saveType == FROM_SAVESTATE) flags = MOVIE_FLAG_NONE;  // from savestate
+	else if (saveType == FROM_SAVERAM  ) flags = MOVIE_FLAG_FROM_SAVERAM;
+	else                                 flags = MOVIE_FLAG_FROM_POWERON;
+
+	// Save it!
+	FCEUI_SaveMovie( filename.toLocal8Bit().constData(), flags, author.toStdWString());
+
+	return true;
+}
+//----------------------------------------------------
+//----  Input Script Object
+//----------------------------------------------------
+//----------------------------------------------------
+InputScriptObject::InputScriptObject(QObject* parent)
+	: QObject(parent)
+{
+	script = qobject_cast<QtScriptInstance*>(parent);
+	engine = script->getEngine();
+}
+//----------------------------------------------------
+InputScriptObject::~InputScriptObject()
+{
+}
+//----------------------------------------------------
+QJSValue InputScriptObject::readJoypad(int player, bool immediate)
+{
+	JoypadScriptObject* joypadObj = new JoypadScriptObject(player, immediate);
+
+	QJSValue jsObj = engine->newQObject( joypadObj );
+
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+	QJSEngine::setObjectOwnership( joypadObj, QJSEngine::JavaScriptOwnership);
+#endif
+
+	return jsObj;
 }
 //----------------------------------------------------
 //----  Memory Script Object
@@ -1123,7 +1842,126 @@ void MemoryScriptObject::unregisterAll()
 	numWriteFuncsRegistered = 0;
 	numExecFuncsRegistered = 0;
 }
+
+//----------------------------------------------------
+//----  Module Loader Object
+//----------------------------------------------------
+//----------------------------------------------------
+ModuleLoaderObject::ModuleLoaderObject(QObject* parent)
+	: QObject(parent)
+{
+	script = qobject_cast<QtScriptInstance*>(parent);
+	engine = script->getEngine();
+	scopeCounter = 0;
+}
+//----------------------------------------------------
+ModuleLoaderObject::~ModuleLoaderObject()
+{
+}
+//----------------------------------------------------
+void ModuleLoaderObject::GlobalImport(const QString& ns, const QString& file)
+{
+	const QString& srcFile = script->getSrcFile();
+	QFileInfo srcFileInfo(srcFile);
+	QString srcPath = srcFileInfo.canonicalPath();
+	QString cwd = QDir::currentPath();
+
+	scopeCounter++;
+
+	QDir::setCurrent(srcPath);
+	QFileInfo moduleFileInfo(file);
+	QString modulePath = moduleFileInfo.canonicalFilePath();
+
+	//printf("%i Namespace: %s     File: %s\n", scopeCounter, ns.toLocal8Bit().constData(), modulePath.toLocal8Bit().constData() );
+
+	QJSValue newModule = engine->importModule( modulePath );
+	QDir::setCurrent(cwd);
+
+	scopeCounter--;
+
+	if (newModule.isError())
+	{
+		QString errMsg = QString("Failed to load module: ") + file + "\n" +
+		newModule.toString() + "\n" +
+		newModule.property("fileName").toString() + ":" +
+		newModule.property("lineNumber").toString() + " : " +
+		newModule.toString() + "\nStack:\n" +
+		newModule.property("stack").toString() + "\n";
+
+		script->throwError(QJSValue::GenericError, errMsg);
+		return;
+	}
+
+	engine->globalObject().setProperty(ns, newModule);
+
+	QString msg = QString("Global import * as '") + ns + QString("' from \"") + file + "\";\n";
+	script->print(msg);
+}
+//----------------------------------------------------
+
 } // JS
+//----------------------------------------------------
+//----  FCEU JSEngine
+//----------------------------------------------------
+namespace FCEU
+{
+	JSEngine::JSEngine(QObject* parent)
+		: QJSEngine(parent)
+	{
+	}
+
+	JSEngine::~JSEngine()
+	{
+	}
+
+	void JSEngine::logMessage(int lvl, const QString& msg)
+	{
+		if (dialog != nullptr)
+		{
+			if (lvl <= _logLevel)
+			{
+				const char *prefix = "Warning: ";
+				switch (lvl)
+				{
+					case FCEU::JSEngine::DEBUG:
+						prefix = "Debug: ";
+					break;
+					case FCEU::JSEngine::INFO:
+						prefix = "Info: ";
+					break;
+					case FCEU::JSEngine::WARNING:
+						prefix = "Warning: ";
+					break;
+					case FCEU::JSEngine::CRITICAL:
+						prefix = "Critical: ";
+					break;
+					case FCEU::JSEngine::FATAL:
+						prefix = "Fatal: ";
+					break;
+				}
+				QString fullMsg = prefix + msg.trimmed() + "\n";
+				dialog->logOutput(fullMsg);
+			}
+		}
+	}
+
+	void JSEngine::acquireThreadContext()
+	{
+		prevContext = currentEngine;
+		currentEngine = this;
+	}
+
+	void JSEngine::releaseThreadContext()
+	{
+		currentEngine = prevContext;
+		prevContext = nullptr;
+	}
+
+	JSEngine* JSEngine::getCurrent()
+	{
+		return currentEngine;
+	}
+}
 //----------------------------------------------------
 //----  Qt Script Instance
 //----------------------------------------------------
@@ -1137,16 +1975,24 @@ QtScriptInstance::QtScriptInstance(QObject* parent)
 		dialog = win;
 	}
 
+	FCEU_WRAPPER_LOCK();
+
 	initEngine();
 
 	QtScriptManager::getInstance()->addScriptInstance(this);
+
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------
 QtScriptInstance::~QtScriptInstance()
 {
+	FCEU_WRAPPER_LOCK();
+
 	QtScriptManager::getInstance()->removeScriptInstance(this);
 
 	shutdownEngine();
+
+	FCEU_WRAPPER_UNLOCK();
 
 	//printf("QtScriptInstance Destroyed\n");
 }
@@ -1205,6 +2051,21 @@ void QtScriptInstance::shutdownEngine()
 		delete mem;
 		mem = nullptr;
 	}
+	if (input != nullptr)
+	{
+		delete input;
+		input = nullptr;
+	}
+	if (movie != nullptr)
+	{
+		delete movie;
+		movie = nullptr;
+	}
+	if (moduleLoader != nullptr)
+	{
+		delete moduleLoader;
+		moduleLoader = nullptr;
+	}
 
 	if (ui_rootWidget != nullptr)
 	{
@@ -1222,12 +2083,18 @@ void QtScriptInstance::resetEngine()
 //----------------------------------------------------
 int QtScriptInstance::initEngine()
 {
-	engine = new QJSEngine(this);
+	engine = new FCEU::JSEngine(this);
+
+	engine->setScript(this);
+	engine->setDialog(dialog);
 
 	emu = new JS::EmuScriptObject(this);
 	rom = new JS::RomScriptObject(this);
 	ppu = new JS::PpuScriptObject(this);
 	mem = new JS::MemoryScriptObject(this);
+	input = new JS::InputScriptObject(this);
+	movie = new JS::MovieScriptObject(this);
+	moduleLoader = new JS::ModuleLoaderObject(this);
 
 	emu->setDialog(dialog);
 	rom->setDialog(dialog);
@@ -1259,14 +2126,35 @@ int QtScriptInstance::initEngine()
 
 	engine->globalObject().setProperty("memory", memObject);
 
+	// input
+	QJSValue inputObject = engine->newQObject(input);
+
+	engine->globalObject().setProperty("input", inputObject);
+
+	// movie
+	QJSValue movieObject = engine->newQObject(movie);
+
+	engine->globalObject().setProperty("movie", movieObject);
+
 	// gui
 	QJSValue guiObject = engine->newQObject(this);
 
 	engine->globalObject().setProperty("gui", guiObject);
 
+	// module
+	QJSValue moduleLoaderObject = engine->newQObject(moduleLoader);
+
+	engine->globalObject().setProperty("Module", moduleLoaderObject);
+
 	// Class Type Definitions for Script Use
 	QJSValue jsColorMetaObject = engine->newQMetaObject(&JS::ColorScriptObject::staticMetaObject);
 	engine->globalObject().setProperty("Color", jsColorMetaObject);
+
+	QJSValue jsFileMetaObject = engine->newQMetaObject(&JS::FileScriptObject::staticMetaObject);
+	engine->globalObject().setProperty("File", jsFileMetaObject);
+
+	QJSValue jsJoypadMetaObject = engine->newQMetaObject(&JS::JoypadScriptObject::staticMetaObject);
+	engine->globalObject().setProperty("Joypad", jsJoypadMetaObject);
 
 	QJSValue jsEmuStateMetaObject = engine->newQMetaObject(&JS::EmuStateScriptObject::staticMetaObject);
 	engine->globalObject().setProperty("EmuState", jsEmuStateMetaObject);
@@ -1288,16 +2176,23 @@ int QtScriptInstance::loadScriptFile( QString filepath )
 	QString fileText = stream.readAll();
 	scriptFile.close();
 
+	srcFile = filepath;
+
 	FCEU_WRAPPER_LOCK();
+	engine->acquireThreadContext();
 	QJSValue evalResult = engine->evaluate(fileText, filepath);
+	engine->releaseThreadContext();
 	FCEU_WRAPPER_UNLOCK();
 
 	if (evalResult.isError())
 	{
-		QString msg;
-		msg += evalResult.property("lineNumber").toString() + ": ";
-		msg += evalResult.toString();
+		QString msg = "Uncaught exception at: " +
+			evalResult.property("fileName").toString() + ":" +
+			evalResult.property("lineNumber").toString() + " : " +
+			evalResult.toString() + "\nStack:\n" +
+			evalResult.property("stack").toString() + "\n";
 		print(msg);
+		emit errorNotify();
 		return -1;
 	}
 	else
@@ -1319,7 +2214,7 @@ void QtScriptInstance::loadObjectChildren(QJSValue& jsObject, QObject* obj)
 
 		if (!name.isEmpty())
 		{
-			//printf("Object: %s.%s\n", obj->objectName().toStdString().c_str(), child->objectName().toStdString().c_str());
+			//printf("Object: %s.%s\n", obj->objectName().toLocal8Bit().constData(), child->objectName().toLocal8Bit().constData());
 
 			QJSValue newJsObj = engine->newQObject(child);
 
@@ -1351,7 +2246,7 @@ void QtScriptInstance::loadUI(const QString& uiFilePath)
 
 	ui_rootWidget->show();
 #else
-	throwError(QJSValue::GenericError, "Error: Application was not linked against Qt UI Tools");
+	throwError(QJSValue::GenericError, "Application was not linked against Qt UI Tools");
 #endif
 }
 //----------------------------------------------------
@@ -1402,10 +2297,6 @@ void QtScriptInstance::print(const QString& msg)
 	{
 		dialog->logOutput(msg);
 	}
-	else
-	{
-		qDebug() << msg;
-	}
 }
 //----------------------------------------------------
 bool QtScriptInstance::onEmulationThread()
@@ -1424,8 +2315,8 @@ bool QtScriptInstance::onGuiThread()
 int QtScriptInstance::throwError(QJSValue::ErrorType errorType, const QString &message)
 {
 	running = false;
-	print(message);
-	engine->setInterrupted(true);
+	mem->reset();
+	engine->throwError(errorType, message);
 	return 0;
 }
 //----------------------------------------------------
@@ -1460,7 +2351,11 @@ int  QtScriptInstance::runFunc(QJSValue &func, const QJSValueList& args)
 
 	state->start();
 
+	engine->acquireThreadContext();
+
 	QJSValue callResult = func.call(args);
+
+	engine->releaseThreadContext();
 
 	state->stop();
 
@@ -1468,7 +2363,14 @@ int  QtScriptInstance::runFunc(QJSValue &func, const QJSValueList& args)
 	{
 		retval = -1;
 		running = false;
-		print(callResult.toString());
+		QString msg = "Uncaught exception at: " +
+			callResult.property("fileName").toString() + ":" +
+			callResult.property("lineNumber").toString() + " : " +
+			callResult.toString() + "\nStack:\n" +
+			callResult.property("stack").toString() + "\n";
+		print(msg);
+
+		emit errorNotify();
 	}
 	return retval;
 }
@@ -1482,6 +2384,7 @@ int  QtScriptInstance::call(const QString& funcName, const QJSValueList& args)
 	if (!engine->globalObject().hasProperty(funcName))
 	{
 		print(QString("No function exists: ") + funcName);
+		emit errorNotify();
 		return -1;
 	}
 	QJSValue func = engine->globalObject().property(funcName);
@@ -1542,6 +2445,14 @@ void QtScriptInstance::onFrameFinish()
 			FCEUI_FrameAdvanceEnd();
 			frameAdvanceState = 0;
 		}
+	}
+}
+//----------------------------------------------------
+void QtScriptInstance::flushLog()
+{
+	if (dialog != nullptr)
+	{
+		dialog->flushLog();
 	}
 }
 //----------------------------------------------------
@@ -1654,7 +2565,7 @@ QtScriptManager::QtScriptManager(QObject* parent)
 	: QObject(parent)
 {
 	_instance = this;
-	monitorThread = new ScriptMonitorThread_t();
+	monitorThread = new ScriptMonitorThread_t(this);
 	monitorThread->start();
 
 	periodicUpdateTimer = new QTimer(this);
@@ -1688,6 +2599,36 @@ void QtScriptManager::destroy(void)
 	}
 }
 //----------------------------------------------------
+void QtScriptManager::logMessageQt(QtMsgType type, const QString &msg)
+{
+	auto* engine = FCEU::JSEngine::getCurrent();
+
+	if (engine != nullptr)
+	{
+		int logLevel = FCEU::JSEngine::WARNING;
+
+		switch (type)
+		{
+			case QtDebugMsg:
+				logLevel = FCEU::JSEngine::DEBUG;
+			break;
+			case QtInfoMsg:
+				logLevel = FCEU::JSEngine::INFO;
+			break;
+			case QtWarningMsg:
+				logLevel = FCEU::JSEngine::WARNING;
+			break;
+			case QtCriticalMsg:
+				logLevel = FCEU::JSEngine::CRITICAL;
+			break;
+			case QtFatalMsg:
+				logLevel = FCEU::JSEngine::FATAL;
+			break;
+		}
+		engine->logMessage( logLevel, msg );
+	}
+}
+//----------------------------------------------------
 void QtScriptManager::addScriptInstance(QtScriptInstance* script)
 {
 	FCEU::autoScopedLock autoLock(scriptListMutex);
@@ -1709,6 +2650,13 @@ void QtScriptManager::removeScriptInstance(QtScriptInstance* script)
 		{
 			it++;
 		}
+	}
+
+	// If no scripts are loaded, reset globals
+	if (scriptList.size() == 0)
+	{
+		JS::MovieScriptObject::skipRerecords = false;
+		JS::JoypadScriptObject::ovrdResetAll();
 	}
 }
 //----------------------------------------------------
@@ -1740,6 +2688,11 @@ void QtScriptManager::guiUpdate()
 		script->onGuiUpdate();
 	}
 	FCEU_WRAPPER_UNLOCK();
+
+	//for (auto script : scriptList)
+	//{
+	//	script->flushLog();
+	//}
 }
 //----------------------------------------------------
 //---- Qt Script Monitor Thread
@@ -1781,14 +2734,29 @@ QScriptDialog_t::QScriptDialog_t(QWidget *parent)
 
 	resize(512, 512);
 
-	setWindowTitle(tr("Qt Java Script Control"));
+	setWindowTitle(tr("JavaScript Control"));
 
+	menuBar = buildMenuBar();
 	mainLayout = new QVBoxLayout();
+	mainLayout->setMenuBar( menuBar );
 
 	lbl = new QLabel(tr("Script File:"));
 
 	scriptPath = new QLineEdit();
 	scriptArgs = new QLineEdit();
+	browseButton = new QPushButton(tr("Browse"));
+
+	hbox = new QHBoxLayout();
+	hbox->addWidget(lbl);
+	hbox->addWidget(scriptPath);
+	hbox->addWidget(browseButton);
+	mainLayout->addLayout(hbox);
+
+	hbox = new QHBoxLayout();
+	lbl = new QLabel(tr("Arguments:"));
+	hbox->addWidget(lbl);
+	hbox->addWidget(scriptArgs);
+	mainLayout->addLayout(hbox);
 
 	g_config->getOption("SDL.LastLoadJs", &filename);
 
@@ -1799,9 +2767,6 @@ QScriptDialog_t::QScriptDialog_t(QWidget *parent)
 	jsOutput = new QTextEdit();
 	jsOutput->setReadOnly(true);
 
-	hbox = new QHBoxLayout();
-
-	browseButton = new QPushButton(tr("Browse"));
 	stopButton = new QPushButton(tr("Stop"));
 
 	scriptInstance = new QtScriptInstance(this);
@@ -1821,20 +2786,9 @@ QScriptDialog_t::QScriptDialog_t(QWidget *parent)
 	connect(stopButton, SIGNAL(clicked()), this, SLOT(stopScript(void)));
 	connect(startButton, SIGNAL(clicked()), this, SLOT(startScript(void)));
 
-	hbox->addWidget(browseButton);
+	hbox = new QHBoxLayout();
 	hbox->addWidget(stopButton);
 	hbox->addWidget(startButton);
-
-	mainLayout->addWidget(lbl);
-	mainLayout->addWidget(scriptPath);
-	mainLayout->addLayout(hbox);
-
-	hbox = new QHBoxLayout();
-	lbl = new QLabel(tr("Arguments:"));
-
-	hbox->addWidget(lbl);
-	hbox->addWidget(scriptArgs);
-
 	mainLayout->addLayout(hbox);
 
 	tabWidget = new QTabWidget();
@@ -1861,12 +2815,17 @@ QScriptDialog_t::QScriptDialog_t(QWidget *parent)
 
 	tabWidget->addTab(propTree, tr("Global Properties"));
 
+	logFilepathLbl = new QLabel( tr("Logging to:") );
+	logFilepath = new QLabel();
+	logFilepath->setTextInteractionFlags(Qt::TextBrowserInteraction);
+	connect( logFilepath, SIGNAL(linkActivated(const QString&)), this, SLOT(onLogLinkClicked(const QString&)) );
 	closeButton = new QPushButton( tr("Close") );
 	closeButton->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
 	connect(closeButton, SIGNAL(clicked(void)), this, SLOT(closeWindow(void)));
 
 	hbox = new QHBoxLayout();
-	hbox->addStretch(5);
+	hbox->addWidget( logFilepathLbl, 1 );
+	hbox->addWidget( logFilepath, 10 );
 	hbox->addWidget( closeButton, 1 );
 	mainLayout->addLayout( hbox );
 
@@ -1883,6 +2842,8 @@ QScriptDialog_t::QScriptDialog_t(QWidget *parent)
 	periodicTimer->start(200); // 5hz
 
 	restoreGeometry(settings.value("QScriptWindow/geometry").toByteArray());
+
+	connect(scriptInstance, SIGNAL(errorNotify()), this, SLOT(onScriptError(void)));
 }
 //----------------------------------------------------
 QScriptDialog_t::~QScriptDialog_t(void)
@@ -1920,6 +2881,179 @@ void QScriptDialog_t::closeWindow(void)
 	deleteLater();
 }
 //----------------------------------------------------
+QMenuBar *QScriptDialog_t::buildMenuBar(void)
+{
+	QMenu       *fileMenu;
+	//QActionGroup *actGroup;
+	QAction     *act;
+	int useNativeMenuBar=0;
+
+	QMenuBar *menuBar = new QMenuBar(this);
+
+	// This is needed for menu bar to show up on MacOS
+	g_config->getOption( "SDL.UseNativeMenuBar", &useNativeMenuBar );
+
+	menuBar->setNativeMenuBar( useNativeMenuBar ? true : false );
+
+	//-----------------------------------------------------------------------
+	// Menu Start
+	//-----------------------------------------------------------------------
+	// File
+	fileMenu = menuBar->addMenu(tr("&File"));
+
+	// File -> Open Script
+	act = new QAction(tr("&Open Script"), this);
+	act->setShortcut(QKeySequence::Open);
+	act->setStatusTip(tr("Open Script"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openScriptFile(void)) );
+
+	fileMenu->addAction(act);
+
+	// File -> Save Log
+	act = new QAction(tr("&Save Log"), this);
+	//act->setShortcut(QKeySequence::Close);
+	act->setStatusTip(tr("Save Log"));
+	connect(act, &QAction::triggered, [ this ] { saveLog(false); } );
+
+	fileMenu->addAction(act);
+
+	// File -> Save Log As
+	act = new QAction(tr("Save Log &As"), this);
+	//act->setShortcut(QKeySequence::Close);
+	act->setStatusTip(tr("Save Log As"));
+	connect(act, &QAction::triggered, [ this ] { saveLog(true); } );
+
+	fileMenu->addAction(act);
+
+	// File -> Flush Log
+	act = new QAction(tr("Flush &Log"), this);
+	//act->setShortcut(QKeySequence::Close);
+	act->setStatusTip(tr("Flush Log to Disk"));
+	connect(act, SIGNAL(triggered()), this, SLOT(flushLog(void)) );
+
+	fileMenu->addAction(act);
+
+	// File -> Close
+	act = new QAction(tr("&Close"), this);
+	act->setShortcut(QKeySequence::Close);
+	act->setStatusTip(tr("Close Window"));
+	connect(act, SIGNAL(triggered()), this, SLOT(closeWindow(void)) );
+
+	fileMenu->addAction(act);
+
+	return menuBar;
+}
+//----------------------------------------------------
+void QScriptDialog_t::saveLog(bool openFileBrowser)
+{
+	if (logFile != nullptr)
+	{
+	       	if (logSavePath.isEmpty() || openFileBrowser)
+		{
+			QString initialPath;
+			QFileDialog  dialog(this, tr("Save Log File") );
+			QList<QUrl> urls;
+			bool useNativeFileDialogVal = false;
+
+			g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+			const QStringList filters({
+        		   "Any files (*)"
+        		 });
+
+			urls << QUrl::fromLocalFile( QDir::rootPath() );
+			urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+			urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
+			urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
+			urls << QUrl::fromLocalFile( QDir( FCEUI_GetBaseDirectory() ).absolutePath() );
+
+			dialog.setFileMode(QFileDialog::AnyFile);
+
+			dialog.setNameFilters( filters );
+
+			dialog.setViewMode(QFileDialog::List);
+			dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+			dialog.setLabelText( QFileDialog::Accept, tr("Save") );
+
+			if (!initialPath.isEmpty() )
+			{
+				dialog.setDirectory( initialPath );
+			}
+
+			dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+			dialog.setSidebarUrls(urls);
+
+			int ret = dialog.exec();
+
+			if ( ret != QDialog::Rejected )
+			{
+				QStringList fileList;
+				fileList = dialog.selectedFiles();
+
+				if ( fileList.size() > 0 )
+				{
+					logSavePath = fileList[0];
+				}
+			}
+			else
+			{
+				return;
+			}
+		}
+
+		if (QFile::exists(logSavePath))
+		{
+			QFile::remove(logSavePath);
+		}
+		//printf("Saving Log File: %s\n", logSavePath.toLocal8Bit().constData());
+		FCEU_WRAPPER_LOCK();
+		{
+			char buffer[4096];
+			flushLog();
+			QFile saveFile( logSavePath );
+			if (saveFile.open(QIODevice::ReadWrite))
+			{
+				logFile->seek(0);
+				qint64 bytesRead = logFile->read(buffer, sizeof(buffer));
+				while (bytesRead > 0)
+				{
+					saveFile.write(buffer, bytesRead);
+
+					bytesRead = logFile->read(buffer, sizeof(buffer));
+				}
+			}
+		}
+		FCEU_WRAPPER_UNLOCK();
+	}
+}
+//----------------------------------------------------
+void QScriptDialog_t::flushLog()
+{
+	if (logFile != nullptr)
+	{
+		logFile->flush();
+	}
+}
+//----------------------------------------------------
+void QScriptDialog_t::onScriptError()
+{
+	//printf("QScriptDialog_t::onScriptError\n");
+
+	flushLog();
+}
+//----------------------------------------------------
+void QScriptDialog_t::onLogLinkClicked(const QString& link)
+{
+	QUrl url = QUrl::fromUserInput(link);
+
+	if( url.isValid() )
+	{
+		flushLog();
+
+		QDesktopServices::openUrl(url);
+	}
+}
+//----------------------------------------------------
 void QScriptDialog_t::clearPropertyTree()
 {
 	propTree->childMap.clear();
@@ -1928,6 +3062,17 @@ void QScriptDialog_t::clearPropertyTree()
 //----------------------------------------------------
 void QScriptDialog_t::loadPropertyTree(QJSValue& object, JsPropertyItem* parentItem)
 {
+	const QMetaObject* objMeta = nullptr;
+
+	if (object.isObject())
+	{
+		auto* qobjPtr = object.toQObject();
+		if (qobjPtr != nullptr)
+		{
+			objMeta = qobjPtr->metaObject();
+		}
+	}
+
 	QJSValueIterator it(object);
 
 	while (it.hasNext())
@@ -1936,6 +3081,7 @@ void QScriptDialog_t::loadPropertyTree(QJSValue& object, JsPropertyItem* parentI
 		QJSValue child = it.value();
 
 		bool isPrototype = it.name() == "prototype";
+		//printf("ProtoType: %s :: %s\n", object.toString().toLocal8Bit().constData(), child.toString().toLocal8Bit().constData());
 
 		if (!isPrototype)
 		{
@@ -1982,6 +3128,26 @@ void QScriptDialog_t::loadPropertyTree(QJSValue& object, JsPropertyItem* parentI
 			{
 				type = "function";
 				value = "";
+
+				if (objMeta != nullptr)
+				{
+					//printf("Function: %s::%s\n", objMeta->className(), name.toLocal8Bit().constData());
+					for (int i=0; i<objMeta->methodCount(); i++)
+					{
+						QMetaMethod m = objMeta->method(i);
+
+						//printf("Method: %s  %s %s\n", 
+						//		m.name().constData(),
+						//		m.typeName(),
+						//		m.methodSignature().constData());
+
+						if (name == m.name())
+						{
+							value = QString("   ") + QString(m.typeName()) + " " +
+								QString::fromLocal8Bit(m.methodSignature());
+						}
+					}
+				}
 			}
 			else if (child.isDate())
 			{
@@ -2080,6 +3246,21 @@ void QScriptDialog_t::loadPropertyTree(QJSValue& object, JsPropertyItem* parentI
 	}
 }
 //----------------------------------------------------
+void QScriptDialog_t::reloadGlobalTree(void)
+{
+	if (scriptInstance != nullptr)
+	{
+		auto* engine = scriptInstance->getEngine();
+
+		if (engine)
+		{
+			QJSValue globals = engine->globalObject();
+
+			loadPropertyTree(globals);
+		}
+	}
+}
+//----------------------------------------------------
 void QScriptDialog_t::updatePeriodic(void)
 {
 	//printf("Update JS\n");
@@ -2099,17 +3280,11 @@ void QScriptDialog_t::updatePeriodic(void)
 		emuThreadText.clear();
 	}
 
-	if (scriptInstance != nullptr)
+	if ((scriptInstance != nullptr) && scriptInstance->isRunning())
 	{
-		auto* engine = scriptInstance->getEngine();
-
-		if (engine)
-		{
-			QJSValue globals = engine->globalObject();
-
-			loadPropertyTree(globals);
-		}
+		reloadGlobalTree();
 	}
+
 	refreshState();
 	FCEU_WRAPPER_UNLOCK();
 }
@@ -2264,17 +3439,34 @@ void QScriptDialog_t::openScriptFile(void)
 	{
 		return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	//qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	g_config->setOption("SDL.LastLoadJs", filename.toStdString().c_str());
+	g_config->setOption("SDL.LastLoadJs", filename.toLocal8Bit().constData());
 
 	scriptPath->setText(filename);
 
 }
 //----------------------------------------------------
+void QScriptDialog_t::resetLog()
+{
+	if (logFile != nullptr)
+	{
+		delete logFile;
+		logFile = nullptr;
+	}
+	logFile = new QTemporaryFile(this);
+	logFile->setAutoRemove(true);
+	logFile->setFileTemplate(QDir::tempPath() + QString("/fceux_js_XXXXXX.log"));
+	logFile->open();
+	QString link = QString("<a href=\"file://") + 
+		logFile->fileName() + QString("\">") + logFile->fileName() + QString("</a>");
+	logFilepath->setText( link );
+}
+//----------------------------------------------------
 void QScriptDialog_t::startScript(void)
 {
 	FCEU_WRAPPER_LOCK();
+	resetLog();
 	jsOutput->clear();
 	clearPropertyTree();
 	scriptInstance->resetEngine();
@@ -2284,11 +3476,13 @@ void QScriptDialog_t::startScript(void)
 		FCEU_WRAPPER_UNLOCK();
 		return;
 	}
-	// TODO add option to pass options to script main.
-	QJSValue argArray = scriptInstance->getEngine()->newArray(4);
-	argArray.setProperty(0, "arg1");
-	argArray.setProperty(1, "arg2");
-	argArray.setProperty(2, "arg3");
+	// Pass command line arguments to script main.
+	QStringList argStringList = scriptArgs->text().split(" ", Qt::SkipEmptyParts);
+	QJSValue argArray = scriptInstance->getEngine()->newArray(argStringList.size());
+	for (int i=0; i<argStringList.size(); i++)
+	{
+		argArray.setProperty(i, argStringList[i]);
+	}
 
 	QJSValueList argList = { argArray };
 
@@ -2344,6 +3538,21 @@ void QScriptDialog_t::logOutput(const QString& text)
 			vbar->setValue( vbar->maximum() );
 		}
 	}
+
+	if (logFile != nullptr)
+	{
+		logFile->write( text.toLocal8Bit() );
+	}
+}
+//----------------------------------------------------
+bool FCEU_JSRerecordCountSkip()
+{
+	return JS::MovieScriptObject::skipRerecords;
+}
+//----------------------------------------------------
+uint8_t FCEU_JSReadJoypad(int which, uint8_t joyl)
+{
+	return JS::JoypadScriptObject::readOverride(which, joyl);
 }
 //----------------------------------------------------
 #endif // __FCEU_QSCRIPT_ENABLE__

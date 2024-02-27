@@ -178,7 +178,7 @@ class  consoleWin_t : public QMainWindow
 		void setContextMenuEnable(bool enable);
 		void setSoundUseGlobalFocus(bool enable);
 
-		void OpenHelpWindow(std::string subpage = "");
+		void OpenHelpWindow(QString subpage = QString());
 
 		int  getPeriodicInterval(void);
 
@@ -193,6 +193,7 @@ class  consoleWin_t : public QMainWindow
 		QMenu *toolsMenu;
 		QMenu *debugMenu;
 		QMenu *movieMenu;
+		QMenu *netPlayMenu;
 		QMenu *helpMenu;
 		QMenu *recentRomMenu;
 		
@@ -259,6 +260,9 @@ class  consoleWin_t : public QMainWindow
 		QAction *recAsWavAct;
 		QAction *stopWavAct;
 		QAction *tasEditorAct;
+		QAction *netPlayHostAct;
+		QAction *netPlayJoinAct;
+		QAction *netPlayDiscAct;
 		//QAction *aviHudAct;
 		//QAction *aviMsgAct;
 
@@ -317,7 +321,12 @@ class  consoleWin_t : public QMainWindow
 		void transferVideoBuffer(bool allowRedraw);
 		void syncAutoFirePatternMenu(void);
 
-		std::string findHelpFile(void);
+		QString findHelpFile(void);
+
+	public:
+	signals:
+		void romLoaded(void);
+		void nesResetOccurred(void);
 
 	public slots:
 		void openDebugWindow(void);
@@ -351,6 +360,9 @@ class  consoleWin_t : public QMainWindow
 		void openTimingConfWin(void);
 		void openStateRecorderConfWin(void);
 		void openPaletteEditorWin(void);
+		void openNetPlayHostWindow(void);
+		void openNetPlayJoinWindow(void);
+		void closeNetPlaySession(void);
 		void openAviRiffViewer(void);
 		void openTimingStatWin(void);
 		void openMovieOptWin(void);
@@ -382,6 +394,7 @@ class  consoleWin_t : public QMainWindow
 		void toggleGameGenie(bool checked);
 		void loadGameGenieROM(void);
 		void loadMostRecentROM(void);
+		void clearRecentRomMenu(void);
 		void setRegionNTSC(void);
 		void setRegionPAL(void);
 		void setRegionDendy(void);

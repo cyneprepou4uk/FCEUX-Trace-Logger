@@ -37,6 +37,7 @@
 #include "Qt/sdl-video.h"
 #include "Qt/nes_shm.h"
 #include "Qt/unix-netplay.h"
+#include "Qt/NetPlay.h"
 #include "Qt/AviRecord.h"
 #include "Qt/HexEditor.h"
 #include "Qt/CheatsConf.h"
@@ -321,9 +322,9 @@ int LoadGame(const char *path, bool silent)
 	// Resolve absolute path to file
 	if ( fi.exists() )
 	{
-		//printf("FI: '%s'\n", fi.absoluteFilePath().toStdString().c_str() );
-		//printf("FI: '%s'\n", fi.canonicalFilePath().toStdString().c_str() );
-		fullpath = fi.canonicalFilePath().toStdString();
+		//printf("FI: '%s'\n", fi.absoluteFilePath().toLocal8Bit().constData() );
+		//printf("FI: '%s'\n", fi.canonicalFilePath().toLocal8Bit().constData() );
+		fullpath = fi.canonicalFilePath().toLocal8Bit().constData();
 	}
 	else
 	{
@@ -466,7 +467,11 @@ int LoadGame(const char *path, bool silent)
 	//}
 	isloaded = 1;
 
-	//FCEUD_NetworkConnect();
+	// Signal to listeners that a new ROM was loaded
+	if ( consoleWindow )
+	{
+		emit consoleWindow->romLoaded();
+	}
 	return 1;
 }
 
@@ -559,6 +564,11 @@ int  fceuWrapperSoftReset(void)
 	if ( isloaded )
 	{
 		ResetNES();
+
+		if (consoleWindow != nullptr)
+		{
+			emit consoleWindow->nesResetOccurred();
+		}
 	}
 	return 0;
 }
@@ -689,7 +699,7 @@ static void ShowUsage(const char *prog)
 	j=0;
 	for (i=0; i<styleList.size(); i++)
 	{
-		printf("  %16s  ", styleList[i].toStdString().c_str() ); j++;
+		printf("  %16s  ", styleList[i].toLocal8Bit().constData() ); j++;
 
 		if ( j >= 4 )
 		{
@@ -1044,7 +1054,7 @@ int  fceuWrapperInit( int argc, char *argv[] )
 		// Resolve absolute path to file
 		if ( fi.exists() )
 		{
-			std::string fullpath = fi.canonicalFilePath().toStdString().c_str();
+			std::string fullpath = fi.canonicalFilePath().toLocal8Bit().constData();
 
 			error = LoadGame( fullpath.c_str() );
 
@@ -1117,9 +1127,9 @@ int  fceuWrapperInit( int argc, char *argv[] )
 		// Resolve absolute path to file
 		if ( fi.exists() )
 		{
-			//printf("FI: '%s'\n", fi.absoluteFilePath().toStdString().c_str() );
-			//printf("FI: '%s'\n", fi.canonicalFilePath().toStdString().c_str() );
-			s = fi.canonicalFilePath().toStdString();
+			//printf("FI: '%s'\n", fi.absoluteFilePath().toLocal8Bit().constData() );
+			//printf("FI: '%s'\n", fi.canonicalFilePath().toLocal8Bit().constData() );
+			s = fi.canonicalFilePath().toLocal8Bit().constData();
 		}
 //#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 //
@@ -1370,7 +1380,7 @@ void fceuWrapperLock(const char *filename, int line, const char *func)
 			printf("Already Locked By: %s\n", lockFile.c_str() );
 			printf("Requested By: %s:%i - %s\n", filename, line, func );
 		}
-		sprintf( txt, ":%i - ", line );
+		snprintf( txt, sizeof(txt), ":%i - ", line );
 		lockFile.assign(filename);
 		lockFile.append(txt);
 		lockFile.append(func);
@@ -1397,7 +1407,7 @@ bool fceuWrapperTryLock(const char *filename, int line, const char *func, int ti
 	if ( lockAcq && debugMutexLock)
 	{
 		char txt[32];
-		sprintf( txt, ":%i - ", line );
+		snprintf( txt, sizeof(txt), ":%i - ", line );
 		lockFile.assign(filename);
 		lockFile.append(txt);
 		lockFile.append(func);
@@ -1475,6 +1485,23 @@ int  fceuWrapperUpdate( void )
 	}
 	mutexLockFail = false;
 	emulatorHasMutex = 1;
+
+	// For netplay, set pause if we do not have input ready for all players
+	if (NetPlayActive())
+	{
+		if (NetPlayFrameWait())
+		{
+			FCEUI_SetNetPlayPause(true);
+		}
+		else
+		{
+			FCEUI_SetNetPlayPause(false);
+		}
+	}
+	else
+	{
+		FCEUI_SetNetPlayPause(false);
+	}
  
 	if ( GameInfo )
 	{
