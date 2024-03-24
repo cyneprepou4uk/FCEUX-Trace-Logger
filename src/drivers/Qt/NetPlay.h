@@ -139,6 +139,7 @@ class NetPlayServer : public QTcpServer
 
 		uint32_t getMaxLeadFrames(){ return maxLeadFrames; }
 		void setMaxLeadFrames(uint32_t value){ maxLeadFrames = value; }
+		void setEnforceAppVersionCheck(bool value){ enforceAppVersionCheck = value; }
 		void setAllowClientRomLoadRequest(bool value){ allowClientRomLoadReq = value; }
 		void setAllowClientStateLoadRequest(bool value){ allowClientStateLoadReq = value; }
 
@@ -164,8 +165,9 @@ class NetPlayServer : public QTcpServer
 		uint32_t maxLeadFrames = 10u;
 		uint32_t clientWaitCounter = 0;
 		uint32_t inputFrameCount = 0;
-		bool     allowClientRomLoadReq = true;
-		bool     allowClientStateLoadReq = true;
+		bool     enforceAppVersionCheck = true;
+		bool     allowClientRomLoadReq = false;
+		bool     allowClientStateLoadReq = false;
 
 	public:
 	signals:
@@ -175,6 +177,7 @@ class NetPlayServer : public QTcpServer
 	public slots:
 		void newConnectionRdy(void);
 		void onRomLoad(void);
+		void onStateLoad(void);
 		void onNesReset(void);
 };
 
@@ -198,6 +201,7 @@ class NetPlayClient : public QObject
 		void forceDisconnect();
 		bool flushData();
 		int  requestRomLoad( const char *romPath );
+		int  requestStateLoad(EMUFILE* is);
 
 		QTcpSocket* createSocket(void);
 		void setSocket(QTcpSocket *s);
@@ -332,6 +336,7 @@ protected:
 	QLineEdit  *passwordEntry;
 	QCheckBox  *passwordRequiredCBox;
 	QSpinBox   *frameLeadSpinBox;
+	QCheckBox  *enforceAppVersionChkCBox;
 	QCheckBox  *allowClientRomReqCBox;
 	QCheckBox  *allowClientStateReqCBox;
 
@@ -340,7 +345,10 @@ protected:
 public slots:
 	void closeWindow(void);
 	void onStartClicked(void);
-
+	void passwordRequiredChanged(int state);
+	void allowClientRomReqChanged(int state);
+	void allowClientStateReqChanged(int state);
+	void enforceAppVersionChkChanged(int state);
 };
 
 class NetPlayJoinDialog : public QDialog
@@ -426,6 +434,7 @@ int NetPlayFrameWait(void);
 void NetPlayOnFrameBegin(void);
 void NetPlayReadInputFrame(uint8_t* joy);
 void NetPlayCloseSession(void);
+bool NetPlayStateLoadReq(EMUFILE* is);
 void NetPlayTraceInstruction(uint8_t *opcode, int size);
 void openNetPlayHostDialog(QWidget* parent = nullptr);
 void openNetPlayJoinDialog(QWidget* parent = nullptr);
