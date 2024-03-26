@@ -38,7 +38,7 @@ enum netPlayerId
 	NETPLAY_PLAYER4
 };
 
-static const uint32_t NETPLAY_MAGIC_NUMBER = 0xaa55aa55;
+static constexpr uint32_t NETPLAY_MAGIC_NUMBER = 0xaa55aa55;
 
 struct netPlayMsgHdr
 {
@@ -127,10 +127,10 @@ struct netPlayAuthResp
 
 struct netPlayTextMsgFlags
 {
-	static const uint32_t DISCONNECT = 0x00000001;
-	static const uint32_t      ERROR = 0x00000002;
-	static const uint32_t    WARNING = 0x00000004;
-	static const uint32_t       INFO = 0x00000008;
+	static constexpr uint32_t Disconnect = 0x00000001;
+	static constexpr uint32_t      Error = 0x00000002;
+	static constexpr uint32_t    Warning = 0x00000004;
+	static constexpr uint32_t       Info = 0x00000008;
 };
 
 template <size_t N=8>
@@ -295,6 +295,7 @@ struct netPlayClientState
 	uint32_t  opsFrame; // Last frame for ops data
 	uint32_t  opsChkSum;
 	uint32_t  ramChkSum;
+	uint32_t  romCrc32;
 	uint8_t   ctrlState[4];
 
 	static constexpr uint32_t  PAUSE_FLAG  = 0x0001;
@@ -302,7 +303,7 @@ struct netPlayClientState
 
 	netPlayClientState(void)
 		: hdr(NETPLAY_CLIENT_STATE, sizeof(netPlayClientState)), flags(0),
-		frameRdy(0), frameRun(0), opsChkSum(0), ramChkSum(0)
+		frameRdy(0), frameRun(0), opsChkSum(0), ramChkSum(0), romCrc32(0)
 	{
 		memset( ctrlState, 0, sizeof(ctrlState) );
 	}
@@ -316,6 +317,7 @@ struct netPlayClientState
 		opsFrame  = netPlayByteSwap(opsFrame);
 		opsChkSum = netPlayByteSwap(opsChkSum);
 		ramChkSum = netPlayByteSwap(ramChkSum);
+		romCrc32  = netPlayByteSwap(romCrc32);
 	}
 
 	void toNetworkByteOrder()
@@ -327,6 +329,7 @@ struct netPlayClientState
 		opsFrame  = netPlayByteSwap(opsFrame);
 		opsChkSum = netPlayByteSwap(opsChkSum);
 		ramChkSum = netPlayByteSwap(ramChkSum);
+		romCrc32  = netPlayByteSwap(romCrc32);
 	}
 };
 

@@ -22,6 +22,7 @@
 #include <QMessageBox>
 
 #include "../../fceu.h"
+#include "../../cart.h"
 #include "../../state.h"
 #include "../../movie.h"
 #include "../../debug.h"
@@ -181,6 +182,11 @@ NetPlayServer::NetPlayServer(QObject *parent)
 
 	FCEU_WRAPPER_LOCK();
 	inputFrameCount = static_cast<uint32_t>(currFrameCounter);
+
+	if (currCartInfo != nullptr)
+	{
+		romCrc32 = currCartInfo->CRC32;
+	}
 	FCEU_WRAPPER_UNLOCK();
 }
 
@@ -256,6 +262,8 @@ void NetPlayServer::processPendingConnections(void)
 
 		clientList.push_back(client);
 
+		connect( newSock, SIGNAL(readyRead(void)), client, SLOT(serverReadyRead(void)) );
+
 		newSock = nextPendingConnection();
 
 		printf("Added Client: %p   %zu\n", client, clientList.size() );
@@ -307,7 +315,7 @@ int NetPlayServer::sendMsg( NetPlayClient *client, void *msg, size_t msgSize, st
 //-----------------------------------------------------------------------------
 int NetPlayServer::sendRomLoadReq( NetPlayClient *client )
 {
-	constexpr size_t BufferSize = 64 * 1024;
+	constexpr size_t BufferSize = 8 * 1024;
 	char buf[BufferSize];
 	size_t bytesRead;
 	long fileSize = 0;
@@ -360,6 +368,7 @@ int NetPlayServer::sendRomLoadReq( NetPlayClient *client )
 	{
 		sendMsg( client, buf, bytesRead );
 	}
+	client->flushData();
 
 	::fclose(fp);
 
@@ -386,6 +395,7 @@ int NetPlayServer::sendStateSyncReq( NetPlayClient *client )
 	sendMsg( client, &hdr, sizeof(netPlayMsgHdr), [&hdr]{ hdr.toNetworkByteOrder(); } );
 	sendMsg( client, em.buf(), em.size() );
 
+	client->flushData();
 	opsCrc32 = 0;
 	inputClear();
 
@@ -442,6 +452,11 @@ void NetPlayServer::onRomLoad()
 {
 	//printf("New ROM Loaded!\n");
 	FCEU_WRAPPER_LOCK();
+
+	if (currCartInfo != nullptr)
+	{
+		romCrc32 = currCartInfo->CRC32;
+	}
 
 	opsCrc32 = 0;
 	netPlayFrameData.reset();
@@ -552,8 +567,8 @@ void NetPlayServer::serverProcessMessage( NetPlayClient *client, void *msgBuf, s
 			if (!version_chk_ok)
 			{
 				netPlayTextMsg<128>  errorMsg(NETPLAY_ERROR_MSG);
-				errorMsg.setFlag(netPlayTextMsgFlags::DISCONNECT);
-				errorMsg.setFlag(netPlayTextMsgFlags::ERROR);
+				errorMsg.setFlag(netPlayTextMsgFlags::Disconnect);
+				errorMsg.setFlag(netPlayTextMsgFlags::Error);
 				errorMsg.printf("Client/Host Version Mismatch:\nHost version is %i.%i.%i\nClient version is %i.%i.%i", 
 						FCEU_VERSION_MAJOR, FCEU_VERSION_MINOR, FCEU_VERSION_PATCH,
 						msg->appVersionMajor, msg->appVersionMinor, msg->appVersionPatch);
@@ -571,8 +586,8 @@ void NetPlayServer::serverProcessMessage( NetPlayClient *client, void *msgBuf, s
 				if (!authentication_passed)
 				{
 					netPlayTextMsg<128>  errorMsg(NETPLAY_ERROR_MSG);
-					errorMsg.setFlag(netPlayTextMsgFlags::DISCONNECT);
-					errorMsg.setFlag(netPlayTextMsgFlags::ERROR);
+					errorMsg.setFlag(netPlayTextMsgFlags::Disconnect);
+					errorMsg.setFlag(netPlayTextMsgFlags::Error);
 					errorMsg.printf("Invalid Password");
 					sendMsg( client, &errorMsg, errorMsg.hdr.msgSize, [&errorMsg]{ errorMsg.toNetworkByteOrder(); } );
 					client->flushData();
@@ -594,8 +609,8 @@ void NetPlayServer::serverProcessMessage( NetPlayClient *client, void *msgBuf, s
 				else
 				{
 					netPlayTextMsg<128>  errorMsg(NETPLAY_ERROR_MSG);
-					errorMsg.setFlag(netPlayTextMsgFlags::DISCONNECT);
-					errorMsg.setFlag(netPlayTextMsgFlags::ERROR);
+					errorMsg.setFlag(netPlayTextMsgFlags::Disconnect);
+					errorMsg.setFlag(netPlayTextMsgFlags::Error);
 					errorMsg.printf("Player %i role is not available", msg->playerId+1);
 					sendMsg( client, &errorMsg, errorMsg.hdr.msgSize, [&errorMsg]{ errorMsg.toNetworkByteOrder(); } );
 					client->flushData();
@@ -618,6 +633,8 @@ void NetPlayServer::serverProcessMessage( NetPlayClient *client, void *msgBuf, s
 			client->setPaused( (msg->flags & netPlayClientState::PAUSE_FLAG ) ? true : false );
 			client->setDesync( (msg->flags & netPlayClientState::DESYNC_FLAG) ? true : false );
 
+			client->romMatch = (romCrc32 == msg->romCrc32);
+
 			NetPlayFrameData data;
 			if ( (msg->opsFrame == 0) || netPlayFrameData.find( msg->opsFrame, data ) )
 			{
@@ -628,7 +645,7 @@ void NetPlayServer::serverProcessMessage( NetPlayClient *client, void *msgBuf, s
 				bool opsSync   = (data.opsCrc32 == msg->opsChkSum);
 				bool ramSync   = (data.ramCrc32 == msg->ramChkSum);
 
-				client->syncOk = opsSync && ramSync;
+				client->syncOk = client->romMatch && opsSync && ramSync;
 
 				if (!client->syncOk)
 				{
@@ -638,12 +655,11 @@ void NetPlayServer::serverProcessMessage( NetPlayClient *client, void *msgBuf, s
 					if (client->desyncCount > forceResyncCount)
 					{
 						FCEU_WRAPPER_LOCK();
-						sendStateSyncReq( client );
+						resyncClient( client );
 						FCEU_WRAPPER_UNLOCK();
 
 						client->desyncCount = 0;
 					}
-
 				}
 				else
 				{
@@ -725,7 +741,7 @@ void NetPlayServer::serverProcessMessage( NetPlayClient *client, void *msgBuf, s
 			else
 			{
 				netPlayTextMsg<128>  errorMsg(NETPLAY_ERROR_MSG);
-				errorMsg.setFlag(netPlayTextMsgFlags::WARNING);
+				errorMsg.setFlag(netPlayTextMsgFlags::Warning);
 				errorMsg.printf("Host is rejected ROMs load request");
 				sendMsg( client, &errorMsg, errorMsg.hdr.msgSize, [&errorMsg]{ errorMsg.toNetworkByteOrder(); } );
 			}
@@ -962,6 +978,19 @@ NetPlayClient::NetPlayClient(QObject *parent, bool outGoing)
 	{
 		printf("Error: NetPlayClient failed to allocate recvMsgBuf\n");
 	}
+
+	if (outGoing)
+	{
+		connect(consoleWindow, SIGNAL(romLoaded(void)), this, SLOT(onRomLoad(void)));
+		connect(consoleWindow, SIGNAL(romUnload(void)), this, SLOT(onRomUnload(void)));
+
+		FCEU_WRAPPER_LOCK();
+		if (currCartInfo != nullptr)
+		{
+			romCrc32 = currCartInfo->CRC32;
+		}
+		FCEU_WRAPPER_UNLOCK();
+	}
 }
 
 
@@ -1025,6 +1054,25 @@ int NetPlayClient::Destroy()
 	return 0;
 }
 //-----------------------------------------------------------------------------
+void NetPlayClient::onRomLoad()
+{
+	FCEU_WRAPPER_LOCK();
+	if (currCartInfo != nullptr)
+	{
+		romCrc32 = currCartInfo->CRC32;
+	}
+	else
+	{
+		romCrc32 = 0;
+	}
+	FCEU_WRAPPER_UNLOCK();
+}
+//-----------------------------------------------------------------------------
+void NetPlayClient::onRomUnload()
+{
+	romCrc32 = 0;
+}
+//-----------------------------------------------------------------------------
 void NetPlayClient::forceDisconnect()
 {
 	disconnectPending = true;
@@ -1058,6 +1106,10 @@ void NetPlayClient::setSocket(QTcpSocket *s)
 
 	if (sock != nullptr)
 	{
+		sock->setSocketOption( QAbstractSocket::QAbstractSocket::LowDelayOption, 1);
+		sock->setSocketOption( QAbstractSocket::SendBufferSizeSocketOption, static_cast<int>(recvMsgBufSize) );
+		sock->setSocketOption( QAbstractSocket::ReceiveBufferSizeSocketOption, static_cast<int>(recvMsgBufSize) );
+
 		connect(sock, SIGNAL(connected(void))   , this, SLOT(onConnect(void)));
 		connect(sock, SIGNAL(disconnected(void)), this, SLOT(onDisconnect(void)));
 	}
@@ -1069,6 +1121,11 @@ QTcpSocket* NetPlayClient::createSocket(void)
 	{
 		sock = new QTcpSocket(this);
 
+		sock->setSocketOption( QAbstractSocket::QAbstractSocket::LowDelayOption, 1);
+		sock->setSocketOption( QAbstractSocket::SendBufferSizeSocketOption, static_cast<int>(recvMsgBufSize) );
+		sock->setSocketOption( QAbstractSocket::ReceiveBufferSizeSocketOption, static_cast<int>(recvMsgBufSize) );
+
+		connect(sock, SIGNAL(readyRead(void))   , this, SLOT(clientReadyRead(void)) );
 		connect(sock, SIGNAL(connected(void))   , this, SLOT(onConnect(void)));
 		connect(sock, SIGNAL(disconnected(void)), this, SLOT(onDisconnect(void)));
 		connect(sock, SIGNAL(errorOccurred(QAbstractSocket::SocketError)), this, SLOT(onSocketError(QAbstractSocket::SocketError)));
@@ -1136,7 +1193,7 @@ void NetPlayClient::onSocketError(QAbstractSocket::SocketError error)
 //-----------------------------------------------------------------------------
 int NetPlayClient::requestRomLoad( const char *romPath )
 {
-	constexpr size_t BufferSize = 64 * 1024;
+	constexpr size_t BufferSize = 8 * 1024;
 	char buf[BufferSize];
 	size_t bytesRead;
 	long fileSize = 0;
@@ -1170,6 +1227,7 @@ int NetPlayClient::requestRomLoad( const char *romPath )
 	{
 		sock->write( buf, bytesRead );
 	}
+	sock->flush();
 
 	::fclose(fp);
 
@@ -1272,6 +1330,7 @@ void NetPlayClient::update(void)
 		statusMsg.opsFrame  = lastFrameData.frameNum;
 		statusMsg.opsChkSum = lastFrameData.opsCrc32;
 		statusMsg.ramChkSum = lastFrameData.ramCrc32;
+		statusMsg.romCrc32  = romCrc32;
 		statusMsg.ctrlState[0] = (ctlrData      ) & 0x000000ff;
 		statusMsg.ctrlState[1] = (ctlrData >>  8) & 0x000000ff;
 		statusMsg.ctrlState[2] = (ctlrData >> 16) & 0x000000ff;
@@ -1297,21 +1356,21 @@ int NetPlayClient::readMessages( void (*msgCallback)( void *userData, void *msgB
 		int bytesAvailable = sock->bytesAvailable();
 		readReq = bytesAvailable > 0;
 
-		//printf("Read Bytes Available: %lu  %i\n", ts.toMilliSeconds(), bytesAvailable);
-
 		while (readReq)
 		{
+			//printf("Read Bytes Available: %lu  %i  %i\n", ts.toMilliSeconds(), bytesAvailable, recvMsgBytesLeft);
+
 			if (recvMsgBytesLeft > 0)
 			{
 				bytesAvailable = sock->bytesAvailable();
-				readReq = (bytesAvailable >= recvMsgBytesLeft);
+				readReq = (bytesAvailable > 0);
 
 				if (readReq)
 				{
 					int dataRead;
-					//size_t readSize = recvMsgBytesLeft;
+					size_t readSize = recvMsgBytesLeft;
 
-					dataRead = sock->read( &recvMsgBuf[recvMsgByteIndex], recvMsgBytesLeft );
+					dataRead = sock->read( &recvMsgBuf[recvMsgByteIndex], readSize );
 
 					if (dataRead > 0)
 					{
@@ -1323,7 +1382,7 @@ int NetPlayClient::readMessages( void (*msgCallback)( void *userData, void *msgB
 					if (recvMsgBytesLeft > 0)
 					{
 						bytesAvailable = sock->bytesAvailable();
-						readReq = (bytesAvailable >= recvMsgBytesLeft);
+						readReq = (bytesAvailable > 0);
 					}
 					else
 					{
@@ -1343,6 +1402,12 @@ int NetPlayClient::readMessages( void (*msgCallback)( void *userData, void *msgB
 				recvMsgSize = netPlayByteSwap(hdr->msgSize) - sizeof(netPlayMsgHdr);
 				recvMsgBytesLeft = recvMsgSize;
 
+				if ( (netPlayByteSwap(hdr->magic[0]) != NETPLAY_MAGIC_NUMBER) || 
+				     (netPlayByteSwap(hdr->magic[1]) != NETPLAY_MAGIC_NUMBER) )
+				{
+					printf("Error: Message Header Validity Check Failed: %08X\n", recvMsgId);
+				}
+
 				if (netPlayByteSwap(hdr->msgSize) > recvMsgBufSize)
 				{
 					printf("Error: Message size too large: %08X\n", recvMsgId);
@@ -1356,7 +1421,7 @@ int NetPlayClient::readMessages( void (*msgCallback)( void *userData, void *msgB
 					msgCallback( userData, recvMsgBuf, recvMsgSize );
 				}
 				bytesAvailable = sock->bytesAvailable();
-				readReq = (bytesAvailable >= recvMsgSize);
+				readReq = (bytesAvailable > 0);
 			}
 			else
 			{
@@ -1382,7 +1447,7 @@ void NetPlayClient::clientProcessMessage( void *msgBuf, size_t msgSize )
 			msg->toHostByteOrder();
 			FCEU_printf("NetPlay Info: %s\n", msg->getBuffer());
 
-			if (msg->isFlagSet(netPlayTextMsgFlags::DISCONNECT))
+			if (msg->isFlagSet(netPlayTextMsgFlags::Disconnect))
 			{
 				sock->disconnectFromHost();
 			}
@@ -1399,7 +1464,7 @@ void NetPlayClient::clientProcessMessage( void *msgBuf, size_t msgSize )
 	       		msgBoxTxt += tr(msg->getBuffer());
 			QMessageBox::critical( consoleWindow, tr("NetPlay Error"), msgBoxTxt, QMessageBox::Ok );
 
-			if (msg->isFlagSet(netPlayTextMsgFlags::DISCONNECT))
+			if (msg->isFlagSet(netPlayTextMsgFlags::Disconnect))
 			{
 				sock->disconnectFromHost();
 			}
@@ -1509,6 +1574,18 @@ void NetPlayClient::clientProcessMessage( void *msgBuf, size_t msgSize )
 			printf("Unknown Msg: %08X\n", msgId);
 		break;
 	}
+}
+//-----------------------------------------------------------------------------
+void NetPlayClient::serverReadyRead()
+{
+	//printf("Server Ready Read\n");
+	readMessages( serverMessageCallback, this );
+}
+//-----------------------------------------------------------------------------
+void NetPlayClient::clientReadyRead()
+{
+	//printf("Client Ready Read\n");
+	readMessages( clientMessageCallback, this );
 }
 //-----------------------------------------------------------------------------
 //--- NetPlayHostDialog
@@ -2121,6 +2198,10 @@ void NetPlayClientTreeItem::updateData()
 		if (client->hasDesync())
 		{
 			state += QObject::tr(",Desync");
+		}
+		if (!client->romMatch)
+		{
+			state += QObject::tr(",ROM Mismatch");
 		}
 
 		setText( 0, client->userName );
