@@ -177,6 +177,7 @@ NetPlayServer::NetPlayServer(QObject *parent)
 	connect(this, SIGNAL(newConnection(void)), this, SLOT(newConnectionRdy(void)));
 
 	connect(consoleWindow, SIGNAL(romLoaded(void)), this, SLOT(onRomLoad(void)));
+	connect(consoleWindow, SIGNAL(romUnload(void)), this, SLOT(onRomUnload(void)));
 	connect(consoleWindow, SIGNAL(stateLoaded(void)), this, SLOT(onStateLoad(void)));
 	connect(consoleWindow, SIGNAL(nesResetOccurred(void)), this, SLOT(onNesReset(void)));
 
@@ -343,7 +344,7 @@ int NetPlayServer::sendRomLoadReq( NetPlayClient *client )
 		return -1;
 	}
 	printf("Prep ROM Load Request: %s \n", filepath );
-	FILE *fp = ::fopen( filepath, "r");
+	FILE *fp = ::fopen( filepath, "rb");
 
 	if (fp == nullptr)
 	{
@@ -471,6 +472,21 @@ void NetPlayServer::onRomLoad()
 		sendStateSyncReq( client );
 	}
 	FCEU_WRAPPER_UNLOCK();
+}
+//-----------------------------------------------------------------------------
+void NetPlayServer::onRomUnload()
+{
+	netPlayMsgHdr unloadMsg(NETPLAY_UNLOAD_ROM_REQ);
+
+	romCrc32 = 0;
+
+	unloadMsg.toNetworkByteOrder();
+
+	// New ROM has been loaded by server, signal clients to load and sync
+	for (auto& client : clientList )
+	{
+		sendMsg( client, &unloadMsg, sizeof(unloadMsg) );
+	}
 }
 //-----------------------------------------------------------------------------
 void NetPlayServer::onStateLoad()
@@ -722,7 +738,7 @@ void NetPlayServer::serverProcessMessage( NetPlayClient *client, void *msgBuf, s
 				printf("Load ROM Request Received: %s\n", filepath.c_str());
 
 				//printf("Dumping Temp Rom to: %s\n", filepath.c_str());
-				fp = ::fopen( filepath.c_str(), "w");
+				fp = ::fopen( filepath.c_str(), "wb");
 
 				if (fp == nullptr)
 				{
@@ -1201,7 +1217,7 @@ int NetPlayClient::requestRomLoad( const char *romPath )
 	QFileInfo fi( romPath );
 
 	printf("Prep ROM Load Request: %s \n", romPath );
-	FILE *fp = ::fopen( romPath, "r");
+	FILE *fp = ::fopen( romPath, "rb");
 
 	if (fp == nullptr)
 	{
@@ -1497,7 +1513,7 @@ void NetPlayClient::clientProcessMessage( void *msgBuf, size_t msgSize )
 			FCEU_printf("Load ROM Request Received: %s\n", filepath.c_str());
 
 			//printf("Dumping Temp Rom to: %s\n", filepath.c_str());
-			fp = ::fopen( filepath.c_str(), "w");
+			fp = ::fopen( filepath.c_str(), "wb");
 
 			if (fp == nullptr)
 			{
@@ -1509,6 +1525,13 @@ void NetPlayClient::clientProcessMessage( void *msgBuf, size_t msgSize )
 			FCEU_WRAPPER_LOCK();
 			LoadGame( filepath.c_str(), true, true );
 			FCEUI_SetEmulationPaused(EMULATIONPAUSED_PAUSED);
+			FCEU_WRAPPER_UNLOCK();
+		}
+		break;
+		case NETPLAY_UNLOAD_ROM_REQ:
+		{
+			FCEU_WRAPPER_LOCK();
+			CloseGame();
 			FCEU_WRAPPER_UNLOCK();
 		}
 		break;
@@ -2264,6 +2287,11 @@ bool NetPlayActive(void)
 bool isNetPlayHost(void)
 {
 	return (NetPlayServer::GetInstance() != nullptr);
+}
+//----------------------------------------------------------------------------
+bool isNetPlayClient(void)
+{
+	return (NetPlayClient::GetInstance() != nullptr);
 }
 //----------------------------------------------------------------------------
 void NetPlayPeriodicUpdate(void)
