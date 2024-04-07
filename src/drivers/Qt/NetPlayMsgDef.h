@@ -15,18 +15,19 @@ uint64_t netPlayByteSwap(uint64_t);
 
 enum netPlayMsgType
 {
-	NETPLAY_AUTH_REQ,
+	NETPLAY_AUTH_REQ = 0,
 	NETPLAY_AUTH_RESP,
-	NETPLAY_LOAD_ROM_REQ,
+	NETPLAY_LOAD_ROM_REQ = 10,
 	NETPLAY_UNLOAD_ROM_REQ,
-	NETPLAY_SYNC_STATE_REQ,
+	NETPLAY_SYNC_STATE_REQ = 20,
 	NETPLAY_SYNC_STATE_RESP,
-	NETPLAY_RUN_FRAME_REQ,
-	NETPLAY_CLIENT_STATE,
-	NETPLAY_INFO_MSG,
+	NETPLAY_RUN_FRAME_REQ = 30,
+	NETPLAY_CLIENT_STATE = 40,
+	NETPLAY_CLIENT_SYNC_REQ,
+	NETPLAY_INFO_MSG = 50,
 	NETPLAY_ERROR_MSG,
 	NETPLAY_CHAT_MSG,
-	NETPLAY_PING_REQ,
+	NETPLAY_PING_REQ = 100,
 	NETPLAY_PING_RESP,
 };
 
@@ -255,6 +256,44 @@ struct netPlayLoadRomReq
 	}
 };
 
+struct netPlayLoadStateResp
+{
+	netPlayMsgHdr  hdr;
+
+	uint32_t  stateSize;
+	uint32_t  opsCrc32;
+
+	netPlayLoadStateResp(void)
+		: hdr(NETPLAY_SYNC_STATE_RESP, sizeof(netPlayLoadStateResp)), stateSize(0), opsCrc32(0)
+	{
+	}
+
+	void toHostByteOrder()
+	{
+		hdr.toHostByteOrder();
+		stateSize  = netPlayByteSwap(stateSize);
+		opsCrc32   = netPlayByteSwap(opsCrc32);
+	}
+
+	void toNetworkByteOrder()
+	{
+		hdr.toNetworkByteOrder();
+		stateSize  = netPlayByteSwap(stateSize);
+		opsCrc32   = netPlayByteSwap(opsCrc32);
+	}
+
+	char* stateDataBuf()
+	{
+		uintptr_t buf = ((uintptr_t)this) + sizeof(netPlayLoadStateResp);
+		return (char*)buf;
+	}
+
+	const uint32_t stateDataSize()
+	{
+		return stateSize;
+	}
+};
+
 
 struct netPlayRunFrameReq
 {
@@ -299,8 +338,8 @@ struct netPlayClientState
 	uint32_t  romCrc32;
 	uint8_t   ctrlState[4];
 
-	static constexpr uint32_t  PAUSE_FLAG  = 0x0001;
-	static constexpr uint32_t  DESYNC_FLAG = 0x0002;
+	static constexpr uint32_t  PauseFlag  = 0x0001;
+	static constexpr uint32_t  DesyncFlag = 0x0002;
 
 	netPlayClientState(void)
 		: hdr(NETPLAY_CLIENT_STATE, sizeof(netPlayClientState)), flags(0),

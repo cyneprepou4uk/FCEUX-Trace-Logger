@@ -181,6 +181,8 @@ class NetPlayServer : public QTcpServer
 		void onRomUnload(void);
 		void onStateLoad(void);
 		void onNesReset(void);
+		void processClientRomLoadRequests(void);
+		void processClientStateLoadRequests(void);
 };
 
 class NetPlayClient : public QObject
@@ -204,6 +206,7 @@ class NetPlayClient : public QObject
 		bool flushData();
 		int  requestRomLoad( const char *romPath );
 		int  requestStateLoad(EMUFILE* is);
+		int  requestSync(void);
 
 		QTcpSocket* createSocket(void);
 		void setSocket(QTcpSocket *s);
@@ -285,6 +288,24 @@ class NetPlayClient : public QObject
 		unsigned int tailTarget = 3;
 		uint8_t gpData[4];
 
+		struct RomLoadReqData
+		{
+			char* buf = nullptr;
+			size_t size = 0;
+			QString fileName;
+
+			bool pending(){ return buf != nullptr; }
+
+		} romLoadData;
+
+		struct StateLoadReqData
+		{
+			char* buf = nullptr;
+			size_t size = 0;
+
+			bool pending(){ return buf != nullptr; }
+
+		} stateLoadData;
 	private:
 
 		static NetPlayClient *instance;
@@ -300,6 +321,7 @@ class NetPlayClient : public QObject
 		bool    _connected = false;
 		bool    paused = false;
 		bool    desync = false;
+		bool    readMessageProcessing = false;
 
 		uint64_t  pingDelaySum = 0;
 		uint64_t  pingDelayLast = 0;
@@ -401,6 +423,31 @@ class NetPlayClientTreeItem : public QTreeWidgetItem
 
 		void updateData();
 	private:
+};
+
+class NetPlayClientStatusDialog : public QDialog
+{
+	Q_OBJECT
+
+public:
+	NetPlayClientStatusDialog(QWidget *parent = 0);
+	~NetPlayClientStatusDialog(void);
+
+	static NetPlayClientStatusDialog *GetInstance(void){ return instance; };
+
+protected:
+	void closeEvent(QCloseEvent *event);
+	void updateStatusDisplay(void);
+
+	QLabel   *hostStateLbl;
+	QTimer   *periodicTimer;
+	QPushButton *requestResyncButton;
+	static NetPlayClientStatusDialog* instance;
+
+public slots:
+	void closeWindow(void);
+	void updatePeriodic(void);
+	void resyncButtonClicked(void);
 };
 
 class NetPlayHostStatusDialog : public QDialog
