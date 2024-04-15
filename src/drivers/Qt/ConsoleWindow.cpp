@@ -55,6 +55,7 @@
 #include "../../movie.h"
 #include "../../wave.h"
 #include "../../state.h"
+#include "../../cheat.h"
 #include "../../profiler.h"
 #include "../../version.h"
 #include "common/os_utils.h"
@@ -285,6 +286,19 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 		}
 	};
 	FCEUSS_SetLoadCallback( stateLoadCallback );
+
+	// Register Cheat Change Callback
+	auto cheatChangeCallback = []( void* userData )
+	{
+		FCEU_UNUSED(userData);
+
+		//printf("Cheats Changed Event!\n");
+		if (consoleWindow != nullptr)
+		{
+			emit consoleWindow->cheatsChanged();
+		}
+	};
+	FCEU_SetCheatChangeEventCallback( cheatChangeCallback, this );
 }
 
 consoleWin_t::~consoleWin_t(void)
@@ -1697,20 +1711,13 @@ void consoleWin_t::createMainMenu(void)
 
 	netPlayMenu->addAction(act);
 
-	// NetPlay -> End Game / Disconnect
-	act = new QAction(tr("&Disconnect/End Game"), this);
-	//act->setShortcut( QKeySequence(tr("Shift+F7")));
-	act->setStatusTip(tr("Disconnect Netplay Game"));
-	connect(act, SIGNAL(triggered()), this, SLOT(closeNetPlaySession(void)) );
-	netPlayDiscAct = act;
-
-	netPlayMenu->addAction(act);
-
 	// NetPlay -> Client Status Dialog
 	act = new QAction(tr("Host &Status"), this);
 	//act->setShortcut( QKeySequence(tr("Shift+F7")));
 	act->setStatusTip(tr("Open Netplay Host Status Dialog"));
 	connect(act, SIGNAL(triggered()), this, SLOT(openNetPlayStatusWindow(void)) );
+	act->setEnabled(false);
+	act->setVisible(false);
 	netPlayHostStatAct = act;
 
 	netPlayMenu->addAction(act);
@@ -1720,7 +1727,24 @@ void consoleWin_t::createMainMenu(void)
 	//act->setShortcut( QKeySequence(tr("Shift+F7")));
 	act->setStatusTip(tr("Open Netplay Client Status Dialog"));
 	connect(act, SIGNAL(triggered()), this, SLOT(openNetPlayStatusWindow(void)) );
+	act->setEnabled(false);
+	act->setVisible(false);
 	netPlayClientStatAct = act;
+
+	netPlayMenu->addAction(act);
+
+	netPlayMenu->addSeparator();
+	act = new QAction(tr(""), this);
+	act->setEnabled(false);
+	netPlayMenu->addAction(act);
+
+	// NetPlay -> End Game / Disconnect
+	act = new QAction(tr("&Disconnect/End Game"), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F7")));
+	act->setStatusTip(tr("Disconnect Netplay Game"));
+	connect(act, SIGNAL(triggered()), this, SLOT(closeNetPlaySession(void)) );
+	act->setEnabled(false);
+	netPlayDiscAct = act;
 
 	netPlayMenu->addAction(act);
 
@@ -3591,6 +3615,9 @@ void consoleWin_t::consolePause(void)
 	fceuWrapperTogglePause();
 	FCEU_WRAPPER_UNLOCK();
 
+	bool isPaused = FCEUI_EmulationPaused() ? true : false;
+	emit pauseToggled( isPaused );
+
 	mainMenuEmuPauseSet = false;
    return;
 }
@@ -4821,28 +4848,6 @@ void consoleWin_t::updatePeriodic(void)
 		recAsWavAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEUI_WaveRecordRunning() );
 		stopWavAct->setEnabled( FCEUI_WaveRecordRunning() );
 		tasEditorAct->setEnabled( FCEU_IsValidUI(FCEUI_TASEDITOR) );
-
-		const bool netPlayactv = NetPlayActive();
-
-		netPlayHostAct->setEnabled( !netPlayactv );
-		netPlayJoinAct->setEnabled( !netPlayactv );
-		netPlayDiscAct->setEnabled(  netPlayactv );
-
-		if (netPlayactv)
-		{
-			const bool isHost = isNetPlayHost();
-			netPlayHostStatAct->setEnabled(isHost);
-			netPlayHostStatAct->setVisible(isHost);
-			netPlayClientStatAct->setEnabled(!isHost);
-			netPlayClientStatAct->setVisible(!isHost);
-		}
-		else
-		{
-			netPlayHostStatAct->setEnabled(false);
-			netPlayHostStatAct->setVisible(false);
-			netPlayClientStatAct->setEnabled(false);
-			netPlayClientStatAct->setVisible(false);
-		}
 	}
 
 	if ( errorMsgValid )
@@ -4873,6 +4878,31 @@ void consoleWin_t::updatePeriodic(void)
 		FCEU_profiler_log_thread_activity();
 #endif
    return;
+}
+
+void consoleWin_t::onNetPlayChange(void)
+{
+	const bool netPlayactv = NetPlayActive();
+
+	netPlayHostAct->setEnabled( !netPlayactv );
+	netPlayJoinAct->setEnabled( !netPlayactv );
+	netPlayDiscAct->setEnabled(  netPlayactv );
+
+	if (netPlayactv)
+	{
+		const bool isHost = isNetPlayHost();
+		netPlayHostStatAct->setEnabled(isHost);
+		netPlayHostStatAct->setVisible(isHost);
+		netPlayClientStatAct->setEnabled(!isHost);
+		netPlayClientStatAct->setVisible(!isHost);
+	}
+	else
+	{
+		netPlayHostStatAct->setEnabled(false);
+		netPlayHostStatAct->setVisible(false);
+		netPlayClientStatAct->setEnabled(false);
+		netPlayClientStatAct->setVisible(false);
+	}
 }
 
 emulatorThread_t::emulatorThread_t( QObject *parent )

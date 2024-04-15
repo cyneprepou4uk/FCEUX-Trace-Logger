@@ -9,6 +9,8 @@
 #include <list>
 #include <functional>
 
+#include <QFile>
+#include <QTemporaryFile>
 #include <QWidget>
 #include <QDialog>
 #include <QVBoxLayout>
@@ -128,9 +130,13 @@ class NetPlayServer : public QTcpServer
 		void resyncClient( NetPlayClient *client );
 		void resyncAllClients();
 
-		int  sendMsg( NetPlayClient *client, void *msg, size_t msgSize, std::function<void(void)> netByteOrderConvertFunc = []{});
+		int  sendMsg( NetPlayClient *client, const void *msg, size_t msgSize, std::function<void(void)> netByteOrderConvertFunc = []{});
 		int  sendRomLoadReq( NetPlayClient *client );
 		int  sendStateSyncReq( NetPlayClient *client );
+		int  sendPause( NetPlayClient *client );
+		int  sendUnpause( NetPlayClient *client );
+		int  sendPauseAll(void);
+		int  sendUnpauseAll(void);
 		void setRole(int _role);
 		int  getRole(void){ return role; }
 		bool claimRole(NetPlayClient* client, int _role);
@@ -142,6 +148,7 @@ class NetPlayServer : public QTcpServer
 		void setEnforceAppVersionCheck(bool value){ enforceAppVersionCheck = value; }
 		void setAllowClientRomLoadRequest(bool value){ allowClientRomLoadReq = value; }
 		void setAllowClientStateLoadRequest(bool value){ allowClientStateLoadReq = value; }
+		void setDebugMode(bool value){ debugMode = value; }
 
 		void serverProcessMessage( NetPlayClient *client, void *msgBuf, size_t msgSize );
 
@@ -160,7 +167,7 @@ class NetPlayServer : public QTcpServer
 		int role = -1;
 		int roleMask = 0;
 		NetPlayClient* clientPlayer[4] = { nullptr };
-		int forceResyncCount = 10;
+		uint32_t forceResyncCount = 10;
 		uint32_t cycleCounter = 0;
 		uint32_t maxLeadFrames = 10u;
 		uint32_t clientWaitCounter = 0;
@@ -169,6 +176,7 @@ class NetPlayServer : public QTcpServer
 		bool     enforceAppVersionCheck = true;
 		bool     allowClientRomLoadReq = false;
 		bool     allowClientStateLoadReq = false;
+		bool     debugMode = false;
 
 	public:
 	signals:
@@ -181,6 +189,8 @@ class NetPlayServer : public QTcpServer
 		void onRomUnload(void);
 		void onStateLoad(void);
 		void onNesReset(void);
+		void onPauseToggled(bool);
+		void onCheatsChanged(void);
 		void processClientRomLoadRequests(void);
 		void processClientStateLoadRequests(void);
 };
@@ -271,15 +281,21 @@ class NetPlayClient : public QObject
 		void setPaused(bool value){ paused = value; }
 		bool hasDesync(){ return desync; }
 		void setDesync(bool value){ desync = value; }
-		void recordPingResult( uint64_t delay_ms );
+		void recordPingResult( const uint64_t delay_ms );
 		void resetPingData(void);
 		double getAvgPingDelay();
+		unsigned long long getLastPingDelay(){ return pingDelayLast; };
+		unsigned long long getMinPingDelay(){ return pingDelayMin; };
+		unsigned long long getMaxPingDelay(){ return pingDelayMax; };
+		void setDebugLog(QFile* file){ debugLog = file; };
 
 		QString userName;
 		QString password;
 		int     role = -1;
 		int     state = 0;
-		int     desyncCount = 0;
+		unsigned int  desyncCount = 0;
+		unsigned int  desyncSinceReset = 0;
+		unsigned int  totalDesyncCount = 0;
 		bool    syncOk = false;
 		bool    romMatch = false;
 		unsigned int currentFrame = 0;
@@ -325,11 +341,18 @@ class NetPlayClient : public QObject
 
 		uint64_t  pingDelaySum = 0;
 		uint64_t  pingDelayLast = 0;
+		uint64_t  pingDelayMin = 1000;
+		uint64_t  pingDelayMax = 0;
 		uint64_t  pingNumSamples = 0;
 		uint32_t  romCrc32 = 0;
+		uint32_t  numMsgBoxObjs = 0;
+
+		long int  spawnTimeStampMs = 0;
 
 		std::list <NetPlayFrameInput> input;
 		FCEU::mutex inputMtx;
+
+		QFile*  debugLog = nullptr;
 
 		static constexpr size_t recvMsgBufSize = 2 * 1024 * 1024;
 
@@ -345,6 +368,7 @@ class NetPlayClient : public QObject
 		void onRomUnload(void);
 		void serverReadyRead(void);
 		void clientReadyRead(void);
+		void onMessageBoxDestroy(QObject* obj);
 };
 
 
@@ -369,6 +393,7 @@ protected:
 	QCheckBox  *enforceAppVersionChkCBox;
 	QCheckBox  *allowClientRomReqCBox;
 	QCheckBox  *allowClientStateReqCBox;
+	QCheckBox  *debugModeCBox;
 
 	static NetPlayHostDialog* instance;
 
@@ -418,6 +443,14 @@ class NetPlayClientTreeItem : public QTreeWidgetItem
 
 		}
 
+		enum Type
+		{
+			StatusInfo = 0,
+			PingInfo,
+			DesyncInfo
+		};
+
+		int type = StatusInfo;
 		NetPlayClient* client = nullptr;
 		NetPlayServer* server = nullptr;
 
