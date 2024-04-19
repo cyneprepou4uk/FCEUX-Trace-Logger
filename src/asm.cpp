@@ -337,8 +337,10 @@ char *Disassemble(int addr, uint8 *opcode) {
 		case 0xE1: chr = "SBC"; goto _indirectx;
 		_indirectx:
 			indirectX(tmp);
+			indReg = 'X';
 
-			sb << chr << " (" << sb_addr(opcode[1], 2) << ",X) @ " << sb_addr(tmp) << " = " << sb_lit(GetMem(tmp));
+		_indirect:
+			sb << chr << " (" << sb_addr(opcode[1], 2) << ',' << indReg << ") @ " << sb_addr(tmp) << " = " << sb_lit(GetMem(tmp));
 			break;
 
 		//Zero Page
@@ -443,9 +445,9 @@ char *Disassemble(int addr, uint8 *opcode) {
 		case 0xF1: chr = "SBC"; goto _indirecty;
 		_indirecty:
 			indirectY(tmp);
+			indReg = 'Y';
 
-			sb << chr << " (" << sb_addr(opcode[1], 2) << "),Y @ " << sb_addr(tmp) << " = " << sb_lit(GetMem(tmp));
-			break;
+			goto _indirect;
 
 		//Zero Page,X
 		case 0x15: chr = "ORA"; goto _zeropagex;
