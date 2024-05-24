@@ -343,23 +343,34 @@ int NetPlayServer::sendRomLoadReq( NetPlayClient *client )
 	char buf[BufferSize];
 	size_t bytesRead;
 	long fileSize = 0;
+	int userCancel = 0;
+	int archiveIndex = -1;
 	netPlayLoadRomReq msg;
+	const char* romextensions[] = { "nes", "fds", "nsf", 0 };
 
 	const char *filepath = nullptr;
 
-	if ( GameInfo )
+	if ( GameInfo == nullptr)
 	{
-		printf("filename: '%s' \n", GameInfo->filename );
-		printf("archiveFilename: '%s' \n", GameInfo->archiveFilename );
+		return -1;
+	}
 
-		if (GameInfo->archiveFilename)
-		{
-			filepath = GameInfo->archiveFilename;
-		}
-		else
-		{
-			filepath = GameInfo->filename;
-		}
+	//printf("filename: '%s' \n", GameInfo->filename );
+	//printf("archiveFilename: '%s' \n", GameInfo->archiveFilename );
+
+	if (GameInfo->archiveFilename)
+	{
+		filepath = GameInfo->archiveFilename;
+	}
+	else
+	{
+		filepath = GameInfo->filename;
+	}
+	archiveIndex = GameInfo->archiveIndex;
+
+	if (archiveIndex >= 0)
+	{
+		msg.archiveIndex = archiveIndex;
 	}
 
 	if (filepath == nullptr)
@@ -367,33 +378,32 @@ int NetPlayServer::sendRomLoadReq( NetPlayClient *client )
 		return -1;
 	}
 	printf("Prep ROM Load Request: %s \n", filepath );
-	FILE *fp = ::fopen( filepath, "rb");
+
+	FCEUFILE* fp = FCEU_fopen( filepath, nullptr, "rb", 0, archiveIndex, romextensions, &userCancel);
 
 	if (fp == nullptr)
 	{
 		return -1;
 	}
-	fseek( fp, 0, SEEK_END);
+	fileSize = fp->size;
 
-	fileSize = ftell(fp);
-
-	rewind(fp);
+	QFileInfo fileInfo(GameInfo->filename);
 
 	msg.hdr.msgSize += fileSize;
 	msg.fileSize     = fileSize;
-	Strlcpy( msg.fileName, GameInfo->filename, sizeof(msg.fileName) );
+	Strlcpy( msg.fileName, fileInfo.fileName().toLocal8Bit().constData(), sizeof(msg.fileName) );
 
 	printf("Sending ROM Load Request: %s  %lu\n", filepath, fileSize );
 
 	sendMsg( client, &msg, sizeof(netPlayLoadRomReq), [&msg]{ msg.toNetworkByteOrder(); } );
 
-	while ( (bytesRead = fread( buf, 1, sizeof(buf), fp )) > 0 )
+	while ( (bytesRead = FCEU_fread( buf, 1, sizeof(buf), fp )) > 0 )
 	{
 		sendMsg( client, buf, bytesRead );
 	}
 	client->flushData();
 
-	::fclose(fp);
+	FCEU_fclose(fp);
 
 	return 0;
 }
@@ -1410,6 +1420,9 @@ int NetPlayClient::Destroy()
 		}
 		traceRegistrationHandle = nullptr;
 	}
+	// Reset frame throttling to normal incase client was dynamically adjusting frame rate.
+	FCEUD_SetEmulationSpeed(EMUSPEED_NORMAL);
+
 	FCEU_WRAPPER_UNLOCK();
 
 	if (consoleWindow != nullptr)
@@ -1580,44 +1593,44 @@ void NetPlayClient::onSocketError(QAbstractSocket::SocketError error)
 	emit errorOccurred(errorMsg);
 }
 //-----------------------------------------------------------------------------
-int NetPlayClient::requestRomLoad( const char *romPath )
+int NetPlayClient::requestRomLoad( const char *romPathIn )
 {
 	constexpr size_t BufferSize = 32 * 1024;
 	char buf[BufferSize];
 	size_t bytesRead;
 	long fileSize = 0;
+	int userCancel = 0;
+	const int archiveIndex = -1;
+	std::string romPath(romPathIn);
 	netPlayLoadRomReq msg;
-	QFileInfo fi( romPath );
+	const char* romextensions[] = { "nes", "fds", "nsf", 0 };
 
-	printf("Prep ROM Load Request: %s \n", romPath );
-	FILE *fp = ::fopen( romPath, "rb");
+	printf("Prep ROM Load Request: %s \n", romPath.c_str() );
+	FCEUFILE* fp = FCEU_fopen( romPath.c_str(), nullptr, "rb", 0, archiveIndex, romextensions, &userCancel);
 
 	if (fp == nullptr)
 	{
 		return -1;
 	}
-	fseek( fp, 0, SEEK_END);
-
-	fileSize = ftell(fp);
-
-	rewind(fp);
+	QFileInfo fi( fp->filename.c_str() );
+	fileSize = fp->size;
 
 	msg.hdr.msgSize += fileSize;
 	msg.fileSize     = fileSize;
 	Strlcpy( msg.fileName, fi.fileName().toLocal8Bit().constData(), sizeof(msg.fileName) );
 
-	printf("Sending ROM Load Request: %s  %lu\n", romPath, fileSize );
+	printf("Sending ROM Load Request: %s  %lu\n", msg.fileName, fileSize );
 
 	msg.toNetworkByteOrder();
 	sock->write( reinterpret_cast<const char*>(&msg), sizeof(netPlayLoadRomReq) );
 
-	while ( (bytesRead = fread( buf, 1, sizeof(buf), fp )) > 0 )
+	while ( (bytesRead = FCEU_fread( buf, 1, sizeof(buf), fp )) > 0 )
 	{
 		sock->write( buf, bytesRead );
 	}
 	sock->flush();
 
-	::fclose(fp);
+	FCEU_fclose(fp);
 
 	return 0;
 }
@@ -1958,22 +1971,26 @@ void NetPlayClient::clientProcessMessage( void *msgBuf, size_t msgSize )
 		break;
 		case NETPLAY_LOAD_ROM_REQ:
 		{
-			QTemporaryFile tmpFile;
 			netPlayLoadRomReq *msg = static_cast<netPlayLoadRomReq*>(msgBuf);
 			msg->toHostByteOrder();
 			const char *romData = &static_cast<const char*>(msgBuf)[ sizeof(netPlayLoadRomReq) ];
 
-			FCEU_printf("Load ROM Request Received: %s\n", msg->fileName);
+			QFileInfo fileInfo = QFileInfo(msg->fileName);
+			QString tempPath = consoleWindow->getTempDir() + QString("/") + fileInfo.fileName();
+			FCEU_printf("Load ROM Request Received: %s\n", fileInfo.fileName().toLocal8Bit().constData());
 
-			tmpFile.setFileTemplate(QDir::tempPath() + QString("/tmpRom_XXXXXX.nes"));
-			tmpFile.open();
+			QFile tmpFile( tempPath );
+			//tmpFile.setFileTemplate(QDir::tempPath() + QString("/tmpRom_XXXXXX.nes"));
+			tmpFile.open(QIODevice::ReadWrite);
 			QString filepath = tmpFile.fileName();
 			printf("Dumping Temp Rom to: %s\n", tmpFile.fileName().toLocal8Bit().constData());
 			tmpFile.write( romData, msgSize );
 			tmpFile.close();
 
 			FCEU_WRAPPER_LOCK();
+			fceuWrapperSetArchiveFileLoadIndex( msg->archiveIndex );
 			LoadGame( filepath.toLocal8Bit().constData(), true, true );
+			fceuWrapperClearArchiveFileLoadIndex();
 
 			opsCrc32 = 0;
 			netPlayFrameData.reset();
