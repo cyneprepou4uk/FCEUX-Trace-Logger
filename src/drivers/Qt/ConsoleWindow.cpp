@@ -3103,100 +3103,11 @@ void consoleWin_t::prepareScreenShot(void)
 	QTimer::singleShot( 100, Qt::CoarseTimer, this, SLOT(takeScreenShot(void)) );
 }
 
-//void consoleWin_t::takeScreenShot(void)
-//{
-//	FCEU_WRAPPER_LOCK();
-//	FCEUI_SaveSnapshot();
-//	FCEU_WRAPPER_UNLOCK();
-//}
-
 void consoleWin_t::takeScreenShot(void)
 {
-#if (defined(__linux__) || defined(__unix__)) && !defined(__APPLE__)
-	// On Wayland, window grab is unreliable; use core framebuffer PNG directly.
-	if (QGuiApplication::platformName() == QLatin1String("wayland"))
-	{
-		FCEU_WRAPPER_LOCK();
-		const int coreResult = SaveSnapshot();
-		FCEU_WRAPPER_UNLOCK();
-		if (coreResult > 0)
-		{
-			FCEU_DispMessage("Screen snapshot %d saved.",0, coreResult - 1);
-		}
-		else
-		{
-			FCEU_DispMessage("Error saving screen snapshot.",0);
-		}
-		return;
-	}
-#endif
-
-	int u=0;
-	QPixmap  image;
-	QScreen *screen = QGuiApplication::primaryScreen();
-
-	if (const QWindow *window = windowHandle())
-	{
-		screen = window->screen();
-	}
-
-	if (screen == NULL)
-	{
-		FCEU_DispMessage("Error saving screen snapshot.",0);
-		return;
-	}
-
 	FCEU_WRAPPER_LOCK();
-
-	if ( viewport_GL )
-	{
-		image = screen->grabWindow( viewport_GL->winId() );
-	}
-	else if ( viewport_SDL )
-	{
-		image = screen->grabWindow( viewport_SDL->winId() );
-	}
-	else if ( viewport_QWidget )
-	{
-		image = screen->grabWindow( viewport_QWidget->winId() );
-	}
-
-	for (u = 0; u < 99999; ++u)
-	{
-		FILE *pp = FCEUD_UTF8fopen( FCEU_MakeFName(FCEUMKF_SNAP,u,"png").c_str(), "rb");
-
-		if (pp == NULL)
-		{
-			break;
-		}
-		fclose(pp);
-	}
-
-	const std::string snapPath = FCEU_MakeFName(FCEUMKF_SNAP, u, "png");
-	const QString snapPathQ = QString::fromUtf8(snapPath.c_str());
-	bool saved = !image.isNull() && image.save(snapPathQ, "png");
-	int snapIndex = u;
-
-	if (!saved)
-	{
-		const int coreResult = SaveSnapshot();
-		if (coreResult > 0)
-		{
-			saved = true;
-			snapIndex = coreResult - 1;
-		}
-	}
-
+	FCEUI_SaveSnapshot();
 	FCEU_WRAPPER_UNLOCK();
-
-	if (saved)
-	{
-		FCEU_DispMessage("Screen snapshot %d saved.",0,snapIndex);
-	}
-	else
-	{
-		FCEU_DispMessage("Error saving screen snapshot.",0);
-	}
 }
 
 void consoleWin_t::loadLua(void)
