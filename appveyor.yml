@@ -1,6 +1,8 @@
 version: 1.0.{build}
 
 environment:
+  APPVEYOR_SAVE_CACHE_ON_ERROR: true
+
   matrix:
 
   - job_name: Windows 32
@@ -10,13 +12,13 @@ environment:
 #    appveyor_build_worker_image: Visual Studio 2019
 #
 #  - job_name: Win64 Qt
-#    appveyor_build_worker_image: Visual Studio 2019
+#    appveyor_build_worker_image: Visual Studio 2022
 #
 #  - job_name: Ubuntu
 #    appveyor_build_worker_image: Ubuntu2004
 #
 #  - job_name: MacOS
-#    appveyor_build_worker_image: macos-monterey
+#    appveyor_build_worker_image: macos-sonoma
 
 for:
 
@@ -43,6 +45,8 @@ for:
 #
 #    build_script:
 #    - cmd: pipelines/WinAppveyorBuild.bat win64-QtSDL
+#    cache:
+#    - C:\Users\appveyor\AppData\Local\vcpkg -> vcpkg/vcpkg.json
 #
 #  -
 #    matrix:
