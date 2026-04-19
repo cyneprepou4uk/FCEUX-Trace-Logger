@@ -44,6 +44,7 @@
 #include <QDesktopServices>
 #include <QStyleFactory>
 #include <QApplication>
+#include <QGuiApplication>
 #include <QActionGroup>
 #include <QShortcut>
 #include <QUrl>
@@ -59,6 +60,7 @@
 #include "../../cheat.h"
 #include "../../profiler.h"
 #include "../../version.h"
+#include "../../video.h"
 #include "common/os_utils.h"
 #include "utils/timeStamp.h"
 
@@ -2204,6 +2206,26 @@ int consoleWin_t::loadVideoDriver( int driverId, bool force )
 		}
 	}
 
+#if (defined(__linux__) || defined(__unix__)) && !defined(__APPLE__)
+	// Qt on Wayland gives QWidget::winId() that is not an X11 window. SDL2 is
+	// initialized with the X11 video driver before this and SDL_CreateWindowFrom
+	// then triggers XGetWindowProperty on that id; libX11's default error handler
+	// calls exit(1) (BadWindow). Fall back to OpenGL on Wayland.
+	if (driverId == ConsoleViewerBase::VIDEO_DRIVER_SDL &&
+	    QGuiApplication::platformName() == QLatin1String("wayland"))
+	{
+		fprintf(stderr,
+			"FCEUX: SDL video driver cannot embed into Qt on Wayland; using OpenGL instead.\n");
+		driverId = ConsoleViewerBase::VIDEO_DRIVER_OPENGL;
+		if (g_config)
+		{
+			g_config->setOption("SDL.VideoDriver",
+				(int)ConsoleViewerBase::VIDEO_DRIVER_OPENGL);
+			g_config->save();
+		}
+	}
+#endif
+
 	switch ( driverId )
 	{  
 		case ConsoleViewerBase::VIDEO_DRIVER_SDL:
@@ -3081,61 +3103,11 @@ void consoleWin_t::prepareScreenShot(void)
 	QTimer::singleShot( 100, Qt::CoarseTimer, this, SLOT(takeScreenShot(void)) );
 }
 
-//void consoleWin_t::takeScreenShot(void)
-//{
-//	FCEU_WRAPPER_LOCK();
-//	FCEUI_SaveSnapshot();
-//	FCEU_WRAPPER_UNLOCK();
-//}
-
 void consoleWin_t::takeScreenShot(void)
 {
-	int u=0;
-	QPixmap  image;
-	QScreen *screen = QGuiApplication::primaryScreen();
-
-	if (const QWindow *window = windowHandle())
-	{
-		screen = window->screen();
-	}
-
-	if (screen == NULL)
-	{
-		FCEU_DispMessage("Error saving screen snapshot.",0);
-		return;
-	}
-
 	FCEU_WRAPPER_LOCK();
-
-	if ( viewport_GL )
-	{
-		image = screen->grabWindow( viewport_GL->winId() );
-	}
-	else if ( viewport_SDL )
-	{
-		image = screen->grabWindow( viewport_SDL->winId() );
-	}
-	else if ( viewport_QWidget )
-	{
-		image = screen->grabWindow( viewport_QWidget->winId() );
-	}
-
-	for (u = 0; u < 99999; ++u)
-	{
-		FILE *pp = FCEUD_UTF8fopen( FCEU_MakeFName(FCEUMKF_SNAP,u,"png").c_str(), "rb");
-
-		if (pp == NULL)
-		{
-			break;
-		}
-		fclose(pp);
-	}
-
-	image.save( tr( FCEU_MakeFName(FCEUMKF_SNAP,u,"png").c_str() ), "png" );
-
+	FCEUI_SaveSnapshot();
 	FCEU_WRAPPER_UNLOCK();
-
-	FCEU_DispMessage("Screen snapshot %d saved.",0,u);
 }
 
 void consoleWin_t::loadLua(void)
