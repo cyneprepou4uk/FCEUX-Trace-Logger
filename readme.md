@@ -2,9 +2,9 @@
 
 A hacked Trace Logger to produce special log files for my disassembler.
 
-## Download latest Windows 32 version
+## Download the latest Windows 32 version
 
-https://ci.appveyor.com/project/cyneprepou4uk/fceux/build/artifacts
+Use `fceux BZK.exe` from the `output` folder.
 
 ## Changed files
 * [appveyor.yml](https://github.com/cyneprepou4uk/fceux/blob/master/appveyor.yml)
